@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-06-09
+
+### Fixed
+
+- **PostgreSQL/PostGIS SELECT**: Fixed `WkbUtil.fromWkb()` failing with "Unknown WKB type" error when reading geometry from PostGIS. Root cause: `encode(ST_AsBinary(), 'hex')` returns standard WKB without SRID prefix, but the parser expected 4-byte SRID prefix. Now uses SRID LE hex + WKB hex concatenation in SQL.
+- **PostgreSQL/PostGIS INSERT**: Fixed `ps.setObject(hexString)` being rejected as `character varying` by PostgreSQL. Now uses `ps.setObject(str, Types.OTHER)` for proper type inference, and outputs EWKB hex format that PostGIS directly recognizes.
+- **PostGIS write format**: Changed `convertForDatabase()` to produce standard EWKB hex (with SRID flag `0x20000000` in type field) instead of custom SRID-prefixed WKB that PostGIS cannot parse.
+
+### Added
+
+- Demo application (`demo/`) with REST CRUD endpoints for validation
+- Spring profiles support: `mysql`, `postgresql`, `mariadb`
+- GeoJSON format input/output via Jackson serializer registration
+- MariaDB 11.x compatibility verified
+- DDL scripts for MySQL, PostgreSQL/PostGIS, and MariaDB
+
+### Verified Database Support
+
+- MySQL 8.0 ✅ (remote AWS instance)
+- PostgreSQL 14 + PostGIS 3.x ✅ (local)
+- MariaDB 11.8 ✅ (Docker)
+
 ## [1.0.0] - 2024-XX-XX
 
 ### Added
@@ -37,5 +59,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Jackson Databind (compileOnly)
 - Apache Commons Codec 1.16.0
 
-[Unreleased]: https://github.com/yoy0o/mybatis-plus-geometry/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/yoy0o/mybatis-plus-geometry/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/yoy0o/mybatis-plus-geometry/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/yoy0o/mybatis-plus-geometry/releases/tag/v1.0.0

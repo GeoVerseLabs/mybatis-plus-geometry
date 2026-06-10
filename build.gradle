@@ -9,7 +9,7 @@ repositories {
 }
 
 group = 'io.github.yoy0o'
-version = '1.0.0'
+version = '1.0.1'
 description = 'MyBatis Plus extension for JTS geometry types with Spring Boot auto-configuration'
 
 jar {
@@ -32,24 +32,24 @@ java {
 dependencies {
     // Core - transitive to users
     api 'org.locationtech.jts:jts-core:1.19.0'
-    
+
     // MyBatis Plus - provided by user
     compileOnly 'com.baomidou:mybatis-plus-boot-starter:3.5.7'
-    
+
     // Jackson for JSON serialization - optional
     compileOnly 'com.fasterxml.jackson.core:jackson-databind:2.15.3'
-    
+
     // Apache Commons Codec for hex encoding
     implementation 'commons-codec:commons-codec:1.16.0'
-    
+
     // Spring Boot (optional, for auto-configuration)
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure:3.2.2'
     compileOnly 'org.springframework.boot:spring-boot-configuration-processor:3.2.2'
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:3.2.2'
-    
+
     // Logging - API only
     implementation 'org.slf4j:slf4j-api:2.0.9'
-    
+
     // Test dependencies
     testImplementation 'org.springframework.boot:spring-boot-starter-test:3.2.2'
     testImplementation 'net.jqwik:jqwik:1.8.2'
@@ -77,15 +77,15 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             from components.java
-            
+
             artifactId = 'mybatis-plus-geometry-spring-boot-starter'
-            
+
             pom {
                 name = 'MyBatis Plus Geometry Extension'
                 description = 'Spring Boot starter for MyBatis Plus JTS geometry support with auto-configuration for MySQL and PostgreSQL/PostGIS'
                 url = 'https://github.com/yoy0o/mybatis-plus-geometry'
                 inceptionYear = '2024'
-                
+
                 licenses {
                     license {
                         name = 'Apache License, Version 2.0'
@@ -93,7 +93,7 @@ publishing {
                         distribution = 'repo'
                     }
                 }
-                
+
                 developers {
                     developer {
                         id = 'yoy0o'
@@ -101,13 +101,13 @@ publishing {
                         url = 'https://yoy0o.github.io/'
                     }
                 }
-                
+
                 scm {
                     connection = 'scm:git:git://github.com/yoy0o/mybatis-plus-geometry.git'
                     developerConnection = 'scm:git:ssh://github.com:yoy0o/mybatis-plus-geometry.git'
                     url = 'https://github.com/yoy0o/mybatis-plus-geometry'
                 }
-                
+
                 issueManagement {
                     system = 'GitHub Issues'
                     url = 'https://github.com/yoy0o/mybatis-plus-geometry/issues'
@@ -115,7 +115,7 @@ publishing {
             }
         }
     }
-    
+
     repositories {
         maven {
             name = 'OSSRH'
@@ -124,7 +124,7 @@ publishing {
             def releasesRepoUrl = 'https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/'
             def snapshotsRepoUrl = 'https://ossrh-staging-api.central.sonatype.com/content/repositories/snapshots/'
             url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
-            
+
             credentials {
                 username = findProperty('ossrhUsername') ?: System.getenv('OSSRH_USERNAME')
                 password = findProperty('ossrhPassword') ?: System.getenv('OSSRH_PASSWORD')
@@ -146,17 +146,17 @@ tasks.withType(PublishToMavenRepository) {
 signing {
     def signingKey = findProperty('signing.key') ?: System.getenv('GPG_PRIVATE_KEY')
     def signingPassword = findProperty('signing.password') ?: System.getenv('GPG_PASSPHRASE')
-    
+
     if (signingKey && signingPassword) {
         useInMemoryPgpKeys(signingKey, signingPassword)
     }
-    
+
     sign publishing.publications.mavenJava
 }
 
 // Only sign when publishing to OSSRH
 tasks.withType(Sign) {
-    onlyIf { 
+    onlyIf {
         project.hasProperty('signing.key') || System.getenv('GPG_PRIVATE_KEY') != null
     }
 }
