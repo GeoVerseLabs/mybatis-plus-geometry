@@ -295,6 +295,16 @@ init-git.bat
 ## 相关文档
 
 - [快速开始指南](.github/QUICK_START_zh.md)
-- [Git 设置指南](GIT_SETUP_zh.md)
+- [Git 设置指南](docs/GIT_SETUP_zh.md)
 - [安全策略](SECURITY_zh.md)
 - [贡献指南](CONTRIBUTING_zh.md)
+
+## 赞助支持
+
+如果这个项目对你有帮助，欢迎赞助支持持续开发！
+
+👉 [查看所有付款方式](.github/SPONSOR.md)
+
+| PayPal | 微信 |
+|--------|------|
+| <img src=".github/sponsor/paypal-qr.png" width="150" /> | <img src=".github/sponsor/wechat-pay.png" width="150" /> |

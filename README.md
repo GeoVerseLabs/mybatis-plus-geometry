@@ -295,6 +295,18 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## Related Documentation
 
 - [Quick Start Guide](.github/QUICK_START.md)
-- [Git Setup Guide](GIT_SETUP.md)
+- [Git Setup Guide](docs/GIT_SETUP.md)
 - [Security Policy](SECURITY.md)
 - [Contributing Guide](CONTRIBUTING.md)
+
+## Sponsor / 赞助
+
+If this project helps you, consider supporting its continued development!
+
+如果这个项目对你有帮助，欢迎赞助支持！
+
+👉 [View all payment options / 查看所有付款方式](.github/SPONSOR.md)
+
+| PayPal | 微信 |
+|--------|------|
+| <img src=".github/sponsor/paypal-qr.png" width="150" /> | <img src=".github/sponsor/wechat-pay.png" width="150" /> |
