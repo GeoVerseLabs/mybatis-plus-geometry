@@ -251,6 +251,14 @@ Java Point/Polygon 对象
 | `WkbUtil` | WKB 格式转换工具 |
 | `GeometryFactoryProvider` | 线程安全的 GeometryFactory 提供者 |
 
+## 赞助支持
+
+如果这个项目对你有帮助，欢迎赞助支持持续开发！
+
+| PayPal | 微信 |
+|--------|------|
+| <img src=".github/sponsor/paypal-qr.png" width="150" /> | <img src=".github/sponsor/wechat-pay.png" width="150" /> |
+
 ## 贡献
 
 欢迎贡献！请阅读我们的[贡献指南](CONTRIBUTING.md)了解详情。
@@ -298,13 +306,3 @@ init-git.bat
 - [Git 设置指南](docs/GIT_SETUP_zh.md)
 - [安全策略](SECURITY_zh.md)
 - [贡献指南](CONTRIBUTING_zh.md)
-
-## 赞助支持
-
-如果这个项目对你有帮助，欢迎赞助支持持续开发！
-
-👉 [查看所有付款方式](.github/SPONSOR.md)
-
-| PayPal | 微信 |
-|--------|------|
-| <img src=".github/sponsor/paypal-qr.png" width="150" /> | <img src=".github/sponsor/wechat-pay.png" width="150" /> |
