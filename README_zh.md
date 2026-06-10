@@ -192,6 +192,20 @@ CREATE TABLE warehouse (
 );
 ```
 
+### MariaDB 表示例
+
+```sql
+-- MariaDB 不支持内联 SRID 约束，SRID 由应用层保证
+CREATE TABLE warehouse (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255),
+    location POINT NOT NULL,
+    boundary POLYGON NOT NULL,
+    created_time DATETIME
+);
+CREATE SPATIAL INDEX idx_warehouse_location ON warehouse(location);
+```
+
 ### PostgreSQL + PostGIS 表示例
 
 ```sql

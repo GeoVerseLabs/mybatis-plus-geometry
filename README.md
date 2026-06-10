@@ -192,6 +192,20 @@ CREATE TABLE warehouse (
 );
 ```
 
+### MariaDB Table Example
+
+```sql
+-- MariaDB does not support inline SRID constraint; SRID is enforced by the application layer
+CREATE TABLE warehouse (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255),
+    location POINT NOT NULL,
+    boundary POLYGON NOT NULL,
+    created_time DATETIME
+);
+CREATE SPATIAL INDEX idx_warehouse_location ON warehouse(location);
+```
+
 ### PostgreSQL + PostGIS Table Example
 
 ```sql

@@ -59,6 +59,16 @@ CREATE TABLE store (
 );
 ```
 
+### MariaDB
+```sql
+CREATE TABLE store (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255),
+    location POINT NOT NULL
+);
+CREATE SPATIAL INDEX idx_store_location ON store(location);
+```
+
 ### PostgreSQL + PostGIS
 ```sql
 CREATE TABLE store (
