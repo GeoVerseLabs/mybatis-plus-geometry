@@ -269,6 +269,8 @@ Java Point/Polygon 对象
 
 如果这个项目对你有帮助，欢迎赞助支持持续开发！
 
+👉 [查看所有付款方式](.github/SPONSOR.md)
+
 | PayPal | 微信 |
 |--------|------|
 | <img src=".github/sponsor/paypal-qr.png" width="150" /> | <img src=".github/sponsor/wechat-pay.png" width="150" /> |

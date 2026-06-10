@@ -265,14 +265,14 @@ Java Point/Polygon object
 | `WkbUtil` | WKB format conversion utilities |
 | `GeometryFactoryProvider` | Thread-safe GeometryFactory provider |
 
-## Sponsor / 赞助
+## Sponsor
 
 If this project helps you, consider supporting its continued development!
 
-如果这个项目对你有帮助，欢迎赞助支持！
+👉 [All payment options](.github/SPONSOR.md)
 
-| PayPal | 微信 |
-|--------|------|
+| PayPal | WeChat |
+|--------|--------|
 | <img src=".github/sponsor/paypal-qr.png" width="150" /> | <img src=".github/sponsor/wechat-pay.png" width="150" /> |
 
 ## Contributing
