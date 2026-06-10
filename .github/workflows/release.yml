@@ -13,38 +13,38 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
-      
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      
+
       - name: Validate Gradle wrapper
         uses: gradle/wrapper-validation-action@v2
-      
+
       - name: Extract version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
+
       - name: Update version in gradle.properties
         run: |
           sed -i "s/version=.*/version=${{ steps.version.outputs.VERSION }}/" gradle.properties
-      
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
-      
+
       - name: Run tests
         run: ./gradlew test --no-daemon
-      
+
       - name: Publish to Maven Central
         run: ./gradlew publishMavenJavaPublicationToOSSRHRepository --no-daemon
         env:
@@ -54,28 +54,35 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         timeout-minutes: 30
         continue-on-error: false
-      
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository --no-daemon
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        timeout-minutes: 10
+
       - name: Upload to Central Portal
         run: |
           # Create base64 encoded credentials
           CREDENTIALS=$(echo -n "${{ secrets.OSSRH_USERNAME }}:${{ secrets.OSSRH_PASSWORD }}" | base64)
-          
+
           # Upload the default repository to Central Portal
           curl -X POST \
             -H "Authorization: Bearer $CREDENTIALS" \
             -H "Content-Type: application/json" \
             "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.github.yoy0o?publishing_type=automatic"
-          
+
           echo "Repository uploaded to Central Portal"
         timeout-minutes: 5
-      
+
       - name: Retry Publish on Failure
         if: failure()
         run: |
           echo "First attempt failed, retrying after 30 seconds..."
           sleep 30
           ./gradlew publishMavenJavaPublicationToOSSRHRepository --no-daemon
-          
+
           # Upload to Central Portal after retry
           CREDENTIALS=$(echo -n "${{ secrets.OSSRH_USERNAME }}:${{ secrets.OSSRH_PASSWORD }}" | base64)
           curl -X POST \
@@ -88,7 +95,7 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         timeout-minutes: 30
-      
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

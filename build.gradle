@@ -130,6 +130,14 @@ publishing {
                 password = findProperty('ossrhPassword') ?: System.getenv('OSSRH_PASSWORD')
             }
         }
+        maven {
+            name = 'GitHubPackages'
+            url = 'https://maven.pkg.github.com/yoy0o/mybatis-plus-geometry'
+            credentials {
+                username = findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+                password = findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
+            }
+        }
     }
 }
 
