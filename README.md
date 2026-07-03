@@ -2,8 +2,8 @@
 
 English | [简体中文](README_zh.md)
 
-[![Build Status](https://github.com/yoy0o/mybatis-plus-geometry/actions/workflows/ci.yml/badge.svg)](https://github.com/yoy0o/mybatis-plus-geometry/actions/workflows/ci.yml)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.yoy0o/mybatis-plus-geometry-spring-boot-starter.svg)](https://search.maven.org/artifact/io.github.yoy0o/mybatis-plus-geometry-spring-boot-starter)
+[![Build Status](https://github.com/GeoVerseLabs/mybatis-plus-geometry/actions/workflows/ci.yml/badge.svg)](https://github.com/GeoVerseLabs/mybatis-plus-geometry/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.geoverselabs/mybatis-plus-geometry-spring-boot-starter.svg)](https://search.maven.org/artifact/io.github.geoverselabs/mybatis-plus-geometry-spring-boot-starter)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 A Spring Boot starter that provides seamless integration between MyBatis Plus and JTS (Java Topology Suite) geometry types. Supports MySQL and PostgreSQL/PostGIS with automatic database detection.
@@ -30,7 +30,7 @@ A Spring Boot starter that provides seamless integration between MyBatis Plus an
 
 ```xml
 <dependency>
-    <groupId>io.github.yoy0o</groupId>
+    <groupId>io.github.geoverselabs</groupId>
     <artifactId>mybatis-plus-geometry-spring-boot-starter</artifactId>
     <version>1.0.1</version>
 </dependency>
@@ -39,7 +39,7 @@ A Spring Boot starter that provides seamless integration between MyBatis Plus an
 ### Gradle
 
 ```groovy
-implementation 'io.github.yoy0o:mybatis-plus-geometry-spring-boot-starter:1.0.1'
+implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.0.1'
 ```
 
 ## Quick Start
@@ -47,8 +47,8 @@ implementation 'io.github.yoy0o:mybatis-plus-geometry-spring-boot-starter:1.0.1'
 ### 1. Define Entity with Geometry Fields
 
 ```java
-import io.github.yoy0o.mybatis.geometry.annotation.PointTableField;
-import io.github.yoy0o.mybatis.geometry.annotation.PolygonTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.PointTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.PolygonTableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
@@ -125,8 +125,8 @@ public class WarehouseDTO {
 If you prefer explicit control, or if auto-configuration is disabled, you can use annotations:
 
 ```java
-import io.github.yoy0o.mybatis.geometry.jackson.PointSerializer;
-import io.github.yoy0o.mybatis.geometry.jackson.PointDeserializer;
+import io.github.geoverselabs.mybatis.geometry.jackson.PointSerializer;
+import io.github.geoverselabs.mybatis.geometry.jackson.PointDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 

@@ -27,7 +27,7 @@ git config init.defaultBranch main
 echo [OK] Default branch set to 'main'
 
 REM Add remote (update with your actual repository URL)
-set REMOTE_URL=https://github.com/yoy0o/mybatis-plus-geometry.git
+set REMOTE_URL=https://github.com/GeoVerseLabs/mybatis-plus-geometry.git
 git remote | findstr /C:"origin" >nul
 if errorlevel 1 (
     echo.

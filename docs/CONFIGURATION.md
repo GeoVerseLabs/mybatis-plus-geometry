@@ -72,7 +72,7 @@ Global config: mybatis.geometry.default-srid  (lowest priority)
 **Recommended approach**: Use `GeometryFactoryProvider.getFactory()` to create geometry objects. The factory is pre-configured with your `default-srid` value, so all geometries created through it automatically carry the correct SRID:
 
 ```java
-import io.github.yoy0o.mybatis.geometry.util.GeometryFactoryProvider;
+import io.github.geoverselabs.mybatis.geometry.util.GeometryFactoryProvider;
 
 // Factory is globally configured via mybatis.geometry.default-srid
 GeometryFactory factory = GeometryFactoryProvider.getFactory();

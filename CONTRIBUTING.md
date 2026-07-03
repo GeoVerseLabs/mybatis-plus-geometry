@@ -12,7 +12,7 @@ Please be respectful and constructive in all interactions. We welcome contributo
 
 ### Reporting Bugs
 
-1. Check if the bug has already been reported in [Issues](https://github.com/yoy0o/mybatis-plus-geometry/issues)
+1. Check if the bug has already been reported in [Issues](https://github.com/GeoVerseLabs/mybatis-plus-geometry/issues)
 2. If not, create a new issue with:
    - Clear title and description
    - Steps to reproduce

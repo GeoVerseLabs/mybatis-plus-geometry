@@ -1,7 +1,7 @@
 # MyBatis Plus Geometry 扩展
 
-[![构建状态](https://github.com/yoy0o/mybatis-plus-geometry/actions/workflows/ci.yml/badge.svg)](https://github.com/yoy0o/mybatis-plus-geometry/actions/workflows/ci.yml)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.yoy0o/mybatis-plus-geometry-spring-boot-starter.svg)](https://search.maven.org/artifact/io.github.yoy0o/mybatis-plus-geometry-spring-boot-starter)
+[![构建状态](https://github.com/GeoVerseLabs/mybatis-plus-geometry/actions/workflows/ci.yml/badge.svg)](https://github.com/GeoVerseLabs/mybatis-plus-geometry/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.geoverselabs/mybatis-plus-geometry-spring-boot-starter.svg)](https://search.maven.org/artifact/io.github.geoverselabs/mybatis-plus-geometry-spring-boot-starter)
 [![许可证](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 [English](README.md) | 简体中文
@@ -30,7 +30,7 @@
 
 ```xml
 <dependency>
-    <groupId>io.github.yoy0o</groupId>
+    <groupId>io.github.geoverselabs</groupId>
     <artifactId>mybatis-plus-geometry-spring-boot-starter</artifactId>
     <version>1.0.1</version>
 </dependency>
@@ -39,7 +39,7 @@
 ### Gradle
 
 ```groovy
-implementation 'io.github.yoy0o:mybatis-plus-geometry-spring-boot-starter:1.0.1'
+implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.0.1'
 ```
 
 ## 快速开始
@@ -47,8 +47,8 @@ implementation 'io.github.yoy0o:mybatis-plus-geometry-spring-boot-starter:1.0.1'
 ### 1. 定义包含几何字段的实体
 
 ```java
-import io.github.yoy0o.mybatis.geometry.annotation.PointTableField;
-import io.github.yoy0o.mybatis.geometry.annotation.PolygonTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.PointTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.PolygonTableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
@@ -125,8 +125,8 @@ public class WarehouseDTO {
 如果需要显式控制，或者自动配置被禁用，可以使用注解：
 
 ```java
-import io.github.yoy0o.mybatis.geometry.jackson.PointSerializer;
-import io.github.yoy0o.mybatis.geometry.jackson.PointDeserializer;
+import io.github.geoverselabs.mybatis.geometry.jackson.PointSerializer;
+import io.github.geoverselabs.mybatis.geometry.jackson.PointDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 

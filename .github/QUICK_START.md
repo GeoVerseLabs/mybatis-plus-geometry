@@ -7,7 +7,7 @@ Get up and running with mybatis-plus-geometry in 5 minutes!
 ### Maven
 ```xml
 <dependency>
-    <groupId>io.github.yoy0o</groupId>
+    <groupId>io.github.geoverselabs</groupId>
     <artifactId>mybatis-plus-geometry-spring-boot-starter</artifactId>
     <version>1.0.1</version>
 </dependency>
@@ -15,13 +15,13 @@ Get up and running with mybatis-plus-geometry in 5 minutes!
 
 ### Gradle
 ```groovy
-implementation 'io.github.yoy0o:mybatis-plus-geometry-spring-boot-starter:1.0.1'
+implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.0.1'
 ```
 
 ## 2. Create Entity
 
 ```java
-import io.github.yoy0o.mybatis.geometry.annotation.PointTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.PointTableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import org.locationtech.jts.geom.Point;
 
