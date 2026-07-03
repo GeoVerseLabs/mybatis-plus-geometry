@@ -40,7 +40,7 @@ git config core.eol lf
 git config init.defaultBranch main
 
 # 5. 添加远程仓库
-git remote add origin https://github.com/yoy0o/mybatis-plus-geometry.git
+git remote add origin https://github.com/GeoVerseLabs/mybatis-plus-geometry.git
 
 # 6. 暂存所有文件
 git add .

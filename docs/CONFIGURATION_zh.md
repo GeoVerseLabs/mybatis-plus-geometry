@@ -72,7 +72,7 @@ mybatis.geometry.database-type=MYSQL
 **推荐做法**：使用 `GeometryFactoryProvider.getFactory()` 创建几何对象。该工厂已根据 `default-srid` 配置预设了 SRID，通过它创建的所有几何对象自动携带正确的 SRID：
 
 ```java
-import io.github.yoy0o.mybatis.geometry.util.GeometryFactoryProvider;
+import io.github.geoverselabs.mybatis.geometry.util.GeometryFactoryProvider;
 
 // 工厂通过 mybatis.geometry.default-srid 全局配置
 GeometryFactory factory = GeometryFactoryProvider.getFactory();

@@ -12,7 +12,7 @@
 
 ### 报告 Bug
 
-1. 在 [Issues](https://github.com/yoy0o/mybatis-plus-geometry/issues) 中检查 Bug 是否已被报告
+1. 在 [Issues](https://github.com/GeoVerseLabs/mybatis-plus-geometry/issues) 中检查 Bug 是否已被报告
 2. 如果没有，创建新 Issue，包含：
    - 清晰的标题和描述
    - 重现步骤

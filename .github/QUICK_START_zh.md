@@ -9,21 +9,21 @@
 ### Maven
 ```xml
 <dependency>
-    <groupId>io.github.yoy0o</groupId>
+    <groupId>io.github.geoverselabs</groupId>
     <artifactId>mybatis-plus-geometry-spring-boot-starter</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
 ### Gradle
 ```groovy
-implementation 'io.github.yoy0o:mybatis-plus-geometry-spring-boot-starter:1.0.1'
+implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.0.0'
 ```
 
 ## 2. 创建实体类
 
 ```java
-import io.github.yoy0o.mybatis.geometry.annotation.PointTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.PointTableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import org.locationtech.jts.geom.Point;
 
@@ -217,4 +217,4 @@ A: 使用 WKB（Well-Known Binary）格式，这是 OGC 标准的二进制格式
 - 查看[完整文档](../README_zh.md)
 - 阅读[贡献指南](../CONTRIBUTING.md)
 - 浏览[示例代码](../examples/)（如果有）
-- 加入[讨论区](https://github.com/yoy0o/mybatis-plus-geometry/discussions)
+- 加入[讨论区](https://github.com/GeoVerseLabs/mybatis-plus-geometry/discussions)

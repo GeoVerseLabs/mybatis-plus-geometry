@@ -29,7 +29,7 @@ git config init.defaultBranch main
 echo "✓ Default branch set to 'main'"
 
 # Add remote (update with your actual repository URL)
-REMOTE_URL="https://github.com/yoy0o/mybatis-plus-geometry.git"
+REMOTE_URL="https://github.com/GeoVerseLabs/mybatis-plus-geometry.git"
 if ! git remote | grep -q origin; then
     echo ""
     echo "To add remote repository, run:"

@@ -38,7 +38,7 @@ git config core.eol lf
 git config init.defaultBranch main
 
 # 5. Add remote repository
-git remote add origin https://github.com/yoy0o/mybatis-plus-geometry.git
+git remote add origin https://github.com/GeoVerseLabs/mybatis-plus-geometry.git
 
 # 6. Stage all files
 git add .
