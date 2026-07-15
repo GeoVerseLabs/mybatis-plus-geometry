@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-07-15
+
 ### Added
 
 - Generic `GeometryTypeHandler` — Wildcard handler that reads/writes any geometry subtype from a single column
@@ -60,5 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spring Boot 2.7+ / 3.x (compileOnly)
 - Jackson Databind (compileOnly)
 
-[Unreleased]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/releases/tag/v1.0.0
