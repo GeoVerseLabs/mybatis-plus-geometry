@@ -12,10 +12,10 @@
 
 - 🚀 **零配置** - Spring Boot 2.7+ 和 3.x 自动配置
 - 🗄️ **多数据库支持** - MySQL 和 PostgreSQL/PostGIS，自动检测
-- 📍 **几何类型** - 支持 Point、Polygon、LineString
+- 📍 **几何类型** - 支持 Point、LineString、Polygon、MultiPoint、MultiLineString、MultiPolygon、GeometryCollection 及通用 Geometry
 - 🔄 **GeoJSON 序列化** - 为 REST API 提供 Jackson 序列化器/反序列化器
 - ⚡ **SQL 拦截器** - SELECT 查询自动添加 HEX() 包装
-- 🎯 **类型安全注解** - `@PointTableField`、`@PolygonTableField`、`@LineStringTableField`
+- 🎯 **类型安全注解** - `@PointTableField`、`@LineStringTableField`、`@PolygonTableField`、`@MultiPointTableField`、`@MultiLineStringTableField`、`@MultiPolygonTableField`、`@GeometryCollectionTableField`、`@GeometryTableField`
 
 ## 系统要求
 
@@ -107,7 +107,7 @@ public class WarehouseService {
 
 ### 自动序列化（推荐）
 
-`GeometryJacksonModule` 自动注册后，DTO 或实体中的 `Point`、`LineString`、`Polygon` 字段会自动进行 GeoJSON 格式的序列化/反序列化：
+`GeometryJacksonModule` 自动注册后，DTO 或实体中的 `Point`、`LineString`、`Polygon`、`MultiPoint`、`MultiLineString`、`MultiPolygon`、`GeometryCollection` 及通用 `Geometry` 字段会自动进行 GeoJSON 格式的序列化/反序列化：
 
 ```java
 public class WarehouseDTO {
@@ -168,6 +168,47 @@ public class WarehouseDTO {
 {
   "type": "LineString",
   "coordinates": [[121.0, 31.0], [121.5, 31.5], [122.0, 32.0]]
+}
+```
+
+**MultiPoint（多点）：**
+```json
+{
+  "type": "MultiPoint",
+  "coordinates": [[121.5, 31.2], [120.1, 30.3], [119.8, 29.9]]
+}
+```
+
+**MultiLineString（多线串）：**
+```json
+{
+  "type": "MultiLineString",
+  "coordinates": [
+    [[121.0, 31.0], [121.5, 31.5]],
+    [[122.0, 32.0], [122.5, 32.5]]
+  ]
+}
+```
+
+**MultiPolygon（多多边形）：**
+```json
+{
+  "type": "MultiPolygon",
+  "coordinates": [
+    [[[121.0, 31.0], [122.0, 31.0], [122.0, 32.0], [121.0, 32.0], [121.0, 31.0]]],
+    [[[119.0, 30.0], [120.0, 30.0], [120.0, 31.0], [119.0, 31.0], [119.0, 30.0]]]
+  ]
+}
+```
+
+**GeometryCollection（几何集合）：**
+```json
+{
+  "type": "GeometryCollection",
+  "geometries": [
+    { "type": "Point", "coordinates": [121.5, 31.2] },
+    { "type": "LineString", "coordinates": [[121.0, 31.0], [122.0, 32.0]] }
+  ]
 }
 ```
 
@@ -266,8 +307,13 @@ Java Point/Polygon 对象
 | 注解 | 说明 |
 |------|------|
 | `@PointTableField` | 标记字段为 JTS Point 类型 |
-| `@PolygonTableField` | 标记字段为 JTS Polygon 类型 |
 | `@LineStringTableField` | 标记字段为 JTS LineString 类型 |
+| `@PolygonTableField` | 标记字段为 JTS Polygon 类型 |
+| `@MultiPointTableField` | 标记字段为 JTS MultiPoint 类型 |
+| `@MultiLineStringTableField` | 标记字段为 JTS MultiLineString 类型 |
+| `@MultiPolygonTableField` | 标记字段为 JTS MultiPolygon 类型 |
+| `@GeometryCollectionTableField` | 标记字段为 JTS GeometryCollection 类型 |
+| `@GeometryTableField` | 标记字段为通用 JTS Geometry 类型（任意子类型） |
 
 ### Jackson 序列化器
 
@@ -275,8 +321,13 @@ Java Point/Polygon 对象
 |----|------|
 | `GeometryJacksonModule` | 自动注册的 Jackson Module（零配置） |
 | `PointSerializer` / `PointDeserializer` | GeoJSON Point 序列化 |
-| `PolygonSerializer` / `PolygonDeserializer` | GeoJSON Polygon 序列化 |
 | `LineStringSerializer` / `LineStringDeserializer` | GeoJSON LineString 序列化 |
+| `PolygonSerializer` / `PolygonDeserializer` | GeoJSON Polygon 序列化 |
+| `MultiPointSerializer` / `MultiPointDeserializer` | GeoJSON MultiPoint 序列化 |
+| `MultiLineStringSerializer` / `MultiLineStringDeserializer` | GeoJSON MultiLineString 序列化 |
+| `MultiPolygonSerializer` / `MultiPolygonDeserializer` | GeoJSON MultiPolygon 序列化 |
+| `GeometryCollectionSerializer` / `GeometryCollectionDeserializer` | GeoJSON GeometryCollection 序列化 |
+| `GenericGeometrySerializer` / `GenericGeometryDeserializer` | 通用几何类型 GeoJSON 序列化 |
 
 ### 工具类
 

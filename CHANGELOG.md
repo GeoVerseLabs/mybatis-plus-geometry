@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generic `GeometryTypeHandler` — Wildcard handler that reads/writes any geometry subtype from a single column
+- `MultiPointTypeHandler`, `MultiLineStringTypeHandler`, `MultiPolygonTypeHandler`, `GeometryCollectionTypeHandler`
+- Jackson GeoJSON serializers: `MultiPointSerializer`, `MultiLineStringSerializer`, `MultiPolygonSerializer`, `GeometryCollectionSerializer`, `GenericGeometrySerializer`
+- Jackson GeoJSON deserializers: `MultiPointDeserializer`, `MultiLineStringDeserializer`, `MultiPolygonDeserializer`, `GeometryCollectionDeserializer`, `GenericGeometryDeserializer`
+- Convenience annotations: `@GeometryTableField`, `@MultiPointTableField`, `@MultiLineStringTableField`, `@MultiPolygonTableField`, `@GeometryCollectionTableField`
+- `WkbUtil` extended with `toWkb`/`toWkbBytes`/`fromWkbAs*` methods for MultiPoint, MultiLineString, MultiPolygon, and GeometryCollection
+- `GeometryJacksonModule` now registers serializers/deserializers for all geometry types including generic `Geometry`
+
 ## [1.0.0] - 2025-07-03
 
 ### Added

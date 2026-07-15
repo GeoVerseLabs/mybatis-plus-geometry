@@ -12,10 +12,10 @@ A Spring Boot starter that provides seamless integration between MyBatis Plus an
 
 - 🚀 **Zero Configuration** - Auto-configuration for Spring Boot 2.7+ and 3.x
 - 🗄️ **Multi-Database Support** - MySQL and PostgreSQL/PostGIS with auto-detection
-- 📍 **Geometry Types** - Point, Polygon, LineString support
+- 📍 **Geometry Types** - Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, and generic Geometry support
 - 🔄 **GeoJSON Serialization** - Jackson serializers/deserializers for REST APIs
 - ⚡ **SQL Interceptor** - Automatic HEX() wrapping for SELECT queries
-- 🎯 **Type-Safe Annotations** - `@PointTableField`, `@PolygonTableField`, `@LineStringTableField`
+- 🎯 **Type-Safe Annotations** - `@PointTableField`, `@LineStringTableField`, `@PolygonTableField`, `@MultiPointTableField`, `@MultiLineStringTableField`, `@MultiPolygonTableField`, `@GeometryCollectionTableField`, `@GeometryTableField`
 
 ## Requirements
 
@@ -107,7 +107,7 @@ GeoJSON serialization is automatically enabled when Jackson is on the classpath.
 
 ### Automatic Serialization (Recommended)
 
-With `GeometryJacksonModule` auto-registered, any `Point`, `LineString`, or `Polygon` field in your DTOs or entities will be serialized/deserialized as GeoJSON automatically:
+With `GeometryJacksonModule` auto-registered, any geometry field (`Point`, `LineString`, `Polygon`, `MultiPoint`, `MultiLineString`, `MultiPolygon`, `GeometryCollection`, or generic `Geometry`) in your DTOs or entities will be serialized/deserialized as GeoJSON automatically:
 
 ```java
 public class WarehouseDTO {
@@ -168,6 +168,47 @@ public class WarehouseDTO {
 {
   "type": "LineString",
   "coordinates": [[121.0, 31.0], [121.5, 31.5], [122.0, 32.0]]
+}
+```
+
+**MultiPoint:**
+```json
+{
+  "type": "MultiPoint",
+  "coordinates": [[121.5, 31.2], [120.1, 30.3], [119.8, 29.9]]
+}
+```
+
+**MultiLineString:**
+```json
+{
+  "type": "MultiLineString",
+  "coordinates": [
+    [[121.0, 31.0], [121.5, 31.5]],
+    [[122.0, 32.0], [122.5, 32.5]]
+  ]
+}
+```
+
+**MultiPolygon:**
+```json
+{
+  "type": "MultiPolygon",
+  "coordinates": [
+    [[[121.0, 31.0], [122.0, 31.0], [122.0, 32.0], [121.0, 32.0], [121.0, 31.0]]],
+    [[[119.0, 30.0], [120.0, 30.0], [120.0, 31.0], [119.0, 31.0], [119.0, 30.0]]]
+  ]
+}
+```
+
+**GeometryCollection:**
+```json
+{
+  "type": "GeometryCollection",
+  "geometries": [
+    { "type": "Point", "coordinates": [121.5, 31.2] },
+    { "type": "LineString", "coordinates": [[121.0, 31.0], [122.0, 32.0]] }
+  ]
 }
 ```
 
@@ -266,8 +307,13 @@ Java Point/Polygon object
 | Annotation | Description |
 |------------|-------------|
 | `@PointTableField` | Marks a field as JTS Point type |
-| `@PolygonTableField` | Marks a field as JTS Polygon type |
 | `@LineStringTableField` | Marks a field as JTS LineString type |
+| `@PolygonTableField` | Marks a field as JTS Polygon type |
+| `@MultiPointTableField` | Marks a field as JTS MultiPoint type |
+| `@MultiLineStringTableField` | Marks a field as JTS MultiLineString type |
+| `@MultiPolygonTableField` | Marks a field as JTS MultiPolygon type |
+| `@GeometryCollectionTableField` | Marks a field as JTS GeometryCollection type |
+| `@GeometryTableField` | Marks a field as generic JTS Geometry (any subtype) |
 
 ### Jackson Serializers
 
@@ -275,8 +321,13 @@ Java Point/Polygon object
 |-------|-------------|
 | `GeometryJacksonModule` | Auto-registered Jackson Module (zero-config) |
 | `PointSerializer` / `PointDeserializer` | GeoJSON Point serialization |
-| `PolygonSerializer` / `PolygonDeserializer` | GeoJSON Polygon serialization |
 | `LineStringSerializer` / `LineStringDeserializer` | GeoJSON LineString serialization |
+| `PolygonSerializer` / `PolygonDeserializer` | GeoJSON Polygon serialization |
+| `MultiPointSerializer` / `MultiPointDeserializer` | GeoJSON MultiPoint serialization |
+| `MultiLineStringSerializer` / `MultiLineStringDeserializer` | GeoJSON MultiLineString serialization |
+| `MultiPolygonSerializer` / `MultiPolygonDeserializer` | GeoJSON MultiPolygon serialization |
+| `GeometryCollectionSerializer` / `GeometryCollectionDeserializer` | GeoJSON GeometryCollection serialization |
+| `GenericGeometrySerializer` / `GenericGeometryDeserializer` | GeoJSON serialization for any geometry type |
 
 ### Utility Classes
 

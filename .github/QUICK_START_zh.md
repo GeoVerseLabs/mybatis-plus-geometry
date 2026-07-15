@@ -173,6 +173,19 @@ mybatis:
 
 现在您可以在 MyBatis Plus 应用中使用几何类型了！
 
+### 支持的几何类型
+
+| 类型 | 注解 | GeoJSON type |
+|------|------|--------------|
+| Point | `@PointTableField` | `"Point"` |
+| LineString | `@LineStringTableField` | `"LineString"` |
+| Polygon | `@PolygonTableField` | `"Polygon"` |
+| MultiPoint | `@MultiPointTableField` | `"MultiPoint"` |
+| MultiLineString | `@MultiLineStringTableField` | `"MultiLineString"` |
+| MultiPolygon | `@MultiPolygonTableField` | `"MultiPolygon"` |
+| GeometryCollection | `@GeometryCollectionTableField` | `"GeometryCollection"` |
+| Geometry（通用） | `@GeometryTableField` | 根据运行时类型 |
+
 更多详情请查看[完整 README](../README_zh.md)。
 
 ## 常见问题
@@ -185,8 +198,13 @@ A: 这是 MyBatis Plus 的要求，用于启用自定义 TypeHandler。没有这
 
 A: 目前支持：
 - Point（点）
-- Polygon（多边形）
 - LineString（线串）
+- Polygon（多边形）
+- MultiPoint（多点）
+- MultiLineString（多线串）
+- MultiPolygon（多多边形）
+- GeometryCollection（几何集合）
+- Geometry（通用类型，可存储任意子类型）
 
 ### Q: 如何处理空间查询？
 
@@ -211,6 +229,10 @@ mybatis:
 ### Q: 数据库中存储的是什么格式？
 
 A: 使用 WKB（Well-Known Binary）格式，这是 OGC 标准的二进制格式，被所有主流 GIS 数据库支持。
+
+## 相关 Topics
+
+`mybatis-plus` `geometry` `gis` `spatial` `jts` `geojson` `spring-boot` `mysql` `postgresql` `postgis` `mariadb` `wkb` `point` `polygon` `linestring` `multipoint` `multilinestring` `multipolygon` `geometrycollection` `typehandler` `java` `spring-boot-starter` `mybatis` `spatial-database`
 
 ## 下一步
 

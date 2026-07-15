@@ -171,4 +171,17 @@ mybatis:
 
 You're now ready to use geometry types in your MyBatis Plus application!
 
+### Supported Geometry Types
+
+| Type | Annotation | GeoJSON type |
+|------|-----------|--------------|
+| Point | `@PointTableField` | `"Point"` |
+| LineString | `@LineStringTableField` | `"LineString"` |
+| Polygon | `@PolygonTableField` | `"Polygon"` |
+| MultiPoint | `@MultiPointTableField` | `"MultiPoint"` |
+| MultiLineString | `@MultiLineStringTableField` | `"MultiLineString"` |
+| MultiPolygon | `@MultiPolygonTableField` | `"MultiPolygon"` |
+| GeometryCollection | `@GeometryCollectionTableField` | `"GeometryCollection"` |
+| Geometry (any) | `@GeometryTableField` | varies by runtime type |
+
 For more details, see the [full README](../README.md).
