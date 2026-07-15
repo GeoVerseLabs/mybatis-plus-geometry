@@ -1,7 +1,9 @@
 package io.github.geoverselabs.mybatis.geometry.util;
 
 import org.locationtech.jts.geom.*;
+import org.locationtech.jts.io.ByteOrderValues;
 import org.locationtech.jts.io.WKBReader;
+import org.locationtech.jts.io.WKBWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +48,8 @@ public final class WkbUtil {
         POLYGON(3),
         MULTIPOINT(4),
         MULTILINESTRING(5),
-        MULTIPOLYGON(6);
+        MULTIPOLYGON(6),
+        GEOMETRYCOLLECTION(7);
 
         private final int code;
 
@@ -253,6 +256,194 @@ public final class WkbUtil {
             geometry.getGeometryType());
     }
 
+    // ==================== MultiPoint Conversion ====================
+
+    /**
+     * Convert JTS MultiPoint to WKB hex string.
+     *
+     * @param multiPoint the MultiPoint to convert
+     * @return WKB hex string with SRID prefix, or null if multiPoint is null
+     */
+    public static String toWkb(MultiPoint multiPoint) {
+        if (multiPoint == null) {
+            return null;
+        }
+        return encodeWithSrid(multiPoint);
+    }
+
+    /**
+     * Convert JTS MultiPoint to WKB byte array.
+     *
+     * @param multiPoint the MultiPoint to convert
+     * @return WKB byte array with SRID prefix, or null if multiPoint is null
+     */
+    public static byte[] toWkbBytes(MultiPoint multiPoint) {
+        if (multiPoint == null) {
+            return null;
+        }
+        return HexFormat.of().parseHex(toWkb(multiPoint));
+    }
+
+    /**
+     * Parse WKB hex string to JTS MultiPoint.
+     *
+     * @param wkbHex the WKB hex string
+     * @return JTS MultiPoint, or null if input is null/empty
+     * @throws IllegalArgumentException if WKB is not a MultiPoint geometry
+     */
+    public static MultiPoint fromWkbAsMultiPoint(String wkbHex) {
+        Geometry geometry = fromWkb(wkbHex);
+        if (geometry == null) {
+            return null;
+        }
+        if (geometry instanceof MultiPoint mp) {
+            return mp;
+        }
+        throw new IllegalArgumentException("WKB string is not a MultiPoint geometry, got: " +
+            geometry.getGeometryType());
+    }
+
+    // ==================== MultiLineString Conversion ====================
+
+    /**
+     * Convert JTS MultiLineString to WKB hex string.
+     *
+     * @param multiLineString the MultiLineString to convert
+     * @return WKB hex string with SRID prefix, or null if multiLineString is null
+     */
+    public static String toWkb(MultiLineString multiLineString) {
+        if (multiLineString == null) {
+            return null;
+        }
+        return encodeWithSrid(multiLineString);
+    }
+
+    /**
+     * Convert JTS MultiLineString to WKB byte array.
+     *
+     * @param multiLineString the MultiLineString to convert
+     * @return WKB byte array with SRID prefix, or null if multiLineString is null
+     */
+    public static byte[] toWkbBytes(MultiLineString multiLineString) {
+        if (multiLineString == null) {
+            return null;
+        }
+        return HexFormat.of().parseHex(toWkb(multiLineString));
+    }
+
+    /**
+     * Parse WKB hex string to JTS MultiLineString.
+     *
+     * @param wkbHex the WKB hex string
+     * @return JTS MultiLineString, or null if input is null/empty
+     * @throws IllegalArgumentException if WKB is not a MultiLineString geometry
+     */
+    public static MultiLineString fromWkbAsMultiLineString(String wkbHex) {
+        Geometry geometry = fromWkb(wkbHex);
+        if (geometry == null) {
+            return null;
+        }
+        if (geometry instanceof MultiLineString mls) {
+            return mls;
+        }
+        throw new IllegalArgumentException("WKB string is not a MultiLineString geometry, got: " +
+            geometry.getGeometryType());
+    }
+
+    // ==================== MultiPolygon Conversion ====================
+
+    /**
+     * Convert JTS MultiPolygon to WKB hex string.
+     *
+     * @param multiPolygon the MultiPolygon to convert
+     * @return WKB hex string with SRID prefix, or null if multiPolygon is null
+     */
+    public static String toWkb(MultiPolygon multiPolygon) {
+        if (multiPolygon == null) {
+            return null;
+        }
+        return encodeWithSrid(multiPolygon);
+    }
+
+    /**
+     * Convert JTS MultiPolygon to WKB byte array.
+     *
+     * @param multiPolygon the MultiPolygon to convert
+     * @return WKB byte array with SRID prefix, or null if multiPolygon is null
+     */
+    public static byte[] toWkbBytes(MultiPolygon multiPolygon) {
+        if (multiPolygon == null) {
+            return null;
+        }
+        return HexFormat.of().parseHex(toWkb(multiPolygon));
+    }
+
+    /**
+     * Parse WKB hex string to JTS MultiPolygon.
+     *
+     * @param wkbHex the WKB hex string
+     * @return JTS MultiPolygon, or null if input is null/empty
+     * @throws IllegalArgumentException if WKB is not a MultiPolygon geometry
+     */
+    public static MultiPolygon fromWkbAsMultiPolygon(String wkbHex) {
+        Geometry geometry = fromWkb(wkbHex);
+        if (geometry == null) {
+            return null;
+        }
+        if (geometry instanceof MultiPolygon mp) {
+            return mp;
+        }
+        throw new IllegalArgumentException("WKB string is not a MultiPolygon geometry, got: " +
+            geometry.getGeometryType());
+    }
+
+    // ==================== GeometryCollection Conversion ====================
+
+    /**
+     * Convert JTS GeometryCollection to WKB hex string.
+     *
+     * @param geometryCollection the GeometryCollection to convert
+     * @return WKB hex string with SRID prefix, or null if geometryCollection is null
+     */
+    public static String toWkb(GeometryCollection geometryCollection) {
+        if (geometryCollection == null) {
+            return null;
+        }
+        return encodeWithSrid(geometryCollection);
+    }
+
+    /**
+     * Convert JTS GeometryCollection to WKB byte array.
+     *
+     * @param geometryCollection the GeometryCollection to convert
+     * @return WKB byte array with SRID prefix, or null if geometryCollection is null
+     */
+    public static byte[] toWkbBytes(GeometryCollection geometryCollection) {
+        if (geometryCollection == null) {
+            return null;
+        }
+        return HexFormat.of().parseHex(toWkb(geometryCollection));
+    }
+
+    /**
+     * Parse WKB hex string to JTS GeometryCollection.
+     *
+     * @param wkbHex the WKB hex string
+     * @return JTS GeometryCollection, or null if input is null/empty
+     * @throws IllegalArgumentException if WKB is not a GeometryCollection geometry
+     */
+    public static GeometryCollection fromWkbAsGeometryCollection(String wkbHex) {
+        Geometry geometry = fromWkb(wkbHex);
+        if (geometry == null) {
+            return null;
+        }
+        if (geometry instanceof GeometryCollection gc) {
+            return gc;
+        }
+        throw new IllegalArgumentException("WKB string is not a GeometryCollection geometry, got: " +
+            geometry.getGeometryType());
+    }
+
     // ==================== Generic Conversion ====================
 
     /**
@@ -269,13 +460,20 @@ public final class WkbUtil {
 
         if (geometry instanceof Point point) {
             return toWkb(point);
+        } else if (geometry instanceof MultiLineString multiLineString) {
+            return toWkb(multiLineString);
         } else if (geometry instanceof LineString lineString) {
             return toWkb(lineString);
         } else if (geometry instanceof Polygon polygon) {
             return toWkb(polygon);
-        } else {
-            throw new IllegalArgumentException("Unsupported geometry type: " + geometry.getGeometryType());
+        } else if (geometry instanceof MultiPoint multiPoint) {
+            return toWkb(multiPoint);
+        } else if (geometry instanceof MultiPolygon multiPolygon) {
+            return toWkb(multiPolygon);
+        } else if (geometry instanceof GeometryCollection gc) {
+            return toWkb(gc);
         }
+        throw new IllegalArgumentException("Unsupported geometry type: " + geometry.getGeometryType());
     }
 
     /**
@@ -283,6 +481,7 @@ public final class WkbUtil {
      *
      * @param geometry the Geometry to convert
      * @return WKB byte array with SRID prefix, or null if geometry is null
+     * @throws IllegalArgumentException if geometry type is not supported
      */
     public static byte[] toWkbBytes(Geometry geometry) {
         if (geometry == null) {
@@ -291,13 +490,20 @@ public final class WkbUtil {
 
         if (geometry instanceof Point point) {
             return toWkbBytes(point);
+        } else if (geometry instanceof MultiLineString multiLineString) {
+            return toWkbBytes(multiLineString);
         } else if (geometry instanceof LineString lineString) {
             return toWkbBytes(lineString);
         } else if (geometry instanceof Polygon polygon) {
             return toWkbBytes(polygon);
-        } else {
-            throw new IllegalArgumentException("Unsupported geometry type: " + geometry.getGeometryType());
+        } else if (geometry instanceof MultiPoint multiPoint) {
+            return toWkbBytes(multiPoint);
+        } else if (geometry instanceof MultiPolygon multiPolygon) {
+            return toWkbBytes(multiPolygon);
+        } else if (geometry instanceof GeometryCollection gc) {
+            return toWkbBytes(gc);
         }
+        throw new IllegalArgumentException("Unsupported geometry type: " + geometry.getGeometryType());
     }
 
     /**
@@ -464,5 +670,26 @@ public final class WkbUtil {
             log.error("Failed to create Polygon WKB", e);
             throw new RuntimeException("Failed to create Polygon WKB", e);
         }
+    }
+
+    /**
+     * Encode a geometry to WKB hex string with SRID prefix using JTS WKBWriter.
+     * Used for Multi* and GeometryCollection types.
+     *
+     * @param geometry the geometry to encode
+     * @return uppercase hex string with 4-byte little-endian SRID prefix followed by WKB bytes
+     */
+    private static String encodeWithSrid(Geometry geometry) {
+        int srid = getSrid(geometry);
+        WKBWriter writer = new WKBWriter(2, ByteOrderValues.LITTLE_ENDIAN);
+        byte[] wkbBytes = writer.write(geometry);
+
+        // Prepend SRID (4 bytes, little-endian)
+        ByteBuffer buffer = ByteBuffer.allocate(4 + wkbBytes.length);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putInt(srid);
+        buffer.put(wkbBytes);
+
+        return HexFormat.of().formatHex(buffer.array()).toUpperCase();
     }
 }
