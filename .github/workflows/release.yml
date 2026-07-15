@@ -96,12 +96,34 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         timeout-minutes: 30
 
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          # Extract the section for this version from CHANGELOG.md
+          # Matches from "## [x.y.z]" until the next "## [" or end of file
+          CHANGELOG=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md)
+
+          # Write to file to avoid multiline env variable issues
+          echo "$CHANGELOG" > /tmp/release_notes.md
+
+          # Also set as output for tag annotation
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          body_path: /tmp/release_notes.md
           files: |
             build/libs/*.jar
-          generate_release_notes: true
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
