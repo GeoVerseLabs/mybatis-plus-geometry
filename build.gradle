@@ -52,6 +52,16 @@ dependencies {
     testImplementation 'net.jqwik:jqwik:1.8.2'
     testImplementation 'com.baomidou:mybatis-plus-boot-starter:3.5.7'
     testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.15.3'
+
+    // Database integration tests (skipped automatically when Docker is unavailable)
+    testImplementation platform('org.testcontainers:testcontainers-bom:1.21.4')
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mysql'
+    testImplementation 'org.testcontainers:mariadb'
+    testImplementation 'org.testcontainers:postgresql'
+    testRuntimeOnly 'com.mysql:mysql-connector-j:8.4.0'
+    testRuntimeOnly 'org.mariadb.jdbc:mariadb-java-client:3.5.3'
+    testRuntimeOnly 'org.postgresql:postgresql:42.7.7'
 }
 
 test {
