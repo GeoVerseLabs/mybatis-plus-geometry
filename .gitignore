@@ -48,3 +48,6 @@ pubring.gpg
 # Generated files
 generated/
 *.class
+
+# jqwik property-test database
+.jqwik-database
