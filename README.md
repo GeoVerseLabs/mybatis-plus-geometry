@@ -254,15 +254,16 @@ See the [Configuration Reference](docs/CONFIGURATION.md) for every property.
 
 ## Transfer Efficiency
 
-Measured on a 5,000-point polygon (JDK 21, single thread; relative to the 1.0.1 output):
+Measured on a 5,000-point polygon (JDK 21, single thread), compared with 1.0.1:
 
 | Optimization | How to enable | Effect |
 |---|---|---|
-| Native binary column reads | default (no SQL interceptor) | MySQL/MariaDB send raw WKB instead of HEX() text: half the bytes, decoding about 2x faster |
-| GeoJSON coordinate precision | `mybatis.geometry.geojson.coordinate-precision: 6` | 42% smaller JSON, 2x faster writing; 57% smaller after gzip |
-| HTTP compression | `server.compression.*` (below) | GeoJSON shrinks 60-75% |
-| Streaming GeoJSON parser | default | One pass, no JSON tree, fast double parsing: about 40% less CPU on input |
-| Packed coordinates | `mybatis.geometry.coordinate-sequence: PACKED` | about 2.7x less heap per decoded geometry |
+| Native binary column reads | default (no SQL interceptor) | MySQL/MariaDB send raw WKB instead of HEX() text: half the bytes, decoding 2x faster (437 → 208 µs) |
+| Streaming GeoJSON parser | default | 42% less CPU and 67% less allocation per request body; 86% less CPU with `geojson.validation: BASIC` |
+| GeoJSON coordinate precision | `mybatis.geometry.geojson.coordinate-precision: 6` | 42% smaller JSON (57% smaller after gzip), 45% less CPU and 85% less allocation when writing |
+| Read-only endpoint (DB → GeoJSON) | native reads + precision 6 | 44% less CPU, 76% less allocation |
+| HTTP compression | `server.compression.*` (below) | GeoJSON shrinks 60–75% |
+| Packed coordinates | `mybatis.geometry.coordinate-sequence: PACKED` | 2.7x less heap per decoded geometry (215 → 79 KB) |
 | Streaming large results | `GeoJsonStreams` + MyBatis `Cursor` | constant memory instead of one object per row |
 
 ### HTTP compression

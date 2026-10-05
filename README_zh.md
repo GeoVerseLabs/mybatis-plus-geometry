@@ -254,15 +254,16 @@ mybatis:
 
 ## 传输效率
 
-以 5000 个顶点的多边形实测（JDK 21，单线程；对比 1.0.1 的输出）：
+以 5000 个顶点的多边形实测（JDK 21，单线程），与 1.0.1 对比：
 
 | 优化项 | 开启方式 | 效果 |
 |---|---|---|
-| 原生二进制读取 | 默认（不再使用 SQL 拦截器） | MySQL/MariaDB 传输原始 WKB 而不是 HEX() 文本：字节数减半，解码快约 2 倍 |
-| GeoJSON 坐标精度 | `mybatis.geometry.geojson.coordinate-precision: 6` | JSON 体积减少 42%，写出快 2 倍；gzip 后再小 57% |
+| 原生二进制读取 | 默认（不再使用 SQL 拦截器） | MySQL/MariaDB 传输原始 WKB 而不是 HEX() 文本：字节数减半，解码快 2 倍（437 → 208 µs） |
+| 流式 GeoJSON 解析 | 默认 | 每个请求体 CPU 降低 42%、内存分配降低 67%；`geojson.validation: BASIC` 时 CPU 降低 86% |
+| GeoJSON 坐标精度 | `mybatis.geometry.geojson.coordinate-precision: 6` | JSON 体积减少 42%（gzip 后减少 57%），写出 CPU 降低 45%、内存分配降低 85% |
+| 只读接口（数据库 → GeoJSON） | 原生读取 + 精度 6 | CPU 降低 44%，内存分配降低 76% |
 | HTTP 压缩 | `server.compression.*`（见下文） | GeoJSON 体积减少 60–75% |
-| 流式 GeoJSON 解析 | 默认 | 单次遍历、不建 JSON 树、快速 double 解析：入站 CPU 降低约 40% |
-| 紧凑坐标存储 | `mybatis.geometry.coordinate-sequence: PACKED` | 每个解码后的几何堆内存约降为 1/2.7 |
+| 紧凑坐标存储 | `mybatis.geometry.coordinate-sequence: PACKED` | 每个解码后的几何堆内存降为 1/2.7（215 → 79 KB） |
 | 大结果集流式输出 | `GeoJsonStreams` + MyBatis `Cursor` | 内存占用恒定，不再随行数增长 |
 
 ### HTTP 压缩
