@@ -1,27 +1,28 @@
 package io.github.geoverselabs.mybatis.geometry.handler;
 
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryHandlerStrategy;
-import io.github.geoverselabs.mybatis.geometry.util.WkbUtil;
 import org.apache.ibatis.type.MappedTypes;
 import org.locationtech.jts.geom.MultiPolygon;
 
-import java.sql.SQLException;
-
 /**
  * MyBatis TypeHandler for JTS MultiPolygon geometry.
- * Converts between JTS MultiPolygon objects and database GEOMETRY columns using WKB format.
+ * Converts between JTS MultiPolygon objects and database GEOMETRY columns through the configured
+ * {@link GeometryHandlerStrategy}.
  *
  * <p>Usage in entity:</p>
  * <pre>{@code
  * @MultiPolygonTableField
  * private MultiPolygon regions;
  * }</pre>
+ *
+ * @see AbstractGeometryTypeHandler
  */
 @MappedTypes(MultiPolygon.class)
 public class MultiPolygonTypeHandler extends AbstractGeometryTypeHandler<MultiPolygon> {
 
     /**
-     * Create a new MultiPolygonTypeHandler with default SRID (4326).
+     * Create a handler that uses the globally configured default SRID and strategy, resolved on
+     * every call.
      */
     public MultiPolygonTypeHandler() {
         super();
@@ -30,7 +31,7 @@ public class MultiPolygonTypeHandler extends AbstractGeometryTypeHandler<MultiPo
     /**
      * Create a new MultiPolygonTypeHandler with specified default SRID.
      *
-     * @param defaultSrid the default SRID to use
+     * @param defaultSrid the SRID given to geometries whose SRID is 0
      */
     public MultiPolygonTypeHandler(int defaultSrid) {
         super(defaultSrid);
@@ -39,30 +40,10 @@ public class MultiPolygonTypeHandler extends AbstractGeometryTypeHandler<MultiPo
     /**
      * Create a new MultiPolygonTypeHandler with specified default SRID and strategy.
      *
-     * @param defaultSrid the default SRID to use
+     * @param defaultSrid the SRID given to geometries whose SRID is 0
      * @param strategy the database-specific geometry handler strategy
      */
     public MultiPolygonTypeHandler(int defaultSrid, GeometryHandlerStrategy strategy) {
         super(defaultSrid, strategy);
-    }
-
-    @Override
-    protected MultiPolygon parseGeometry(String hexString) {
-        if (hexString == null || hexString.isEmpty()) {
-            return null;
-        }
-        return WkbUtil.fromWkbAsMultiPolygon(hexString);
-    }
-
-    @Override
-    protected void validateGeometry(MultiPolygon geometry) throws SQLException {
-        if (!geometry.isValid()) {
-            throw new SQLException("Invalid MultiPolygon geometry: geometry validation failed");
-        }
-    }
-
-    @Override
-    protected String getGeometryTypeName() {
-        return "MultiPolygon";
     }
 }

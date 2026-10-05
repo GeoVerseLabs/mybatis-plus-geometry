@@ -2,81 +2,147 @@ package io.github.geoverselabs.mybatis.geometry.handler;
 
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryHandlerStrategy;
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryStrategyFactory;
-import io.github.geoverselabs.mybatis.geometry.util.WkbUtil;
+import io.github.geoverselabs.mybatis.geometry.support.GeometryDefaults;
+import io.github.geoverselabs.mybatis.geometry.support.GeometryValidation;
+import io.github.geoverselabs.mybatis.geometry.util.GeometryFactoryProvider;
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
+import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.CoordinateSequenceFilter;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.operation.valid.IsValidOp;
+import org.locationtech.jts.operation.valid.TopologyValidationError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Type;
 import java.sql.CallableStatement;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 
 /**
  * Abstract base class for geometry TypeHandlers.
- * Provides common functionality for converting JTS geometry objects to/from database GEOMETRY columns.
+ * Converts JTS geometry objects to/from database GEOMETRY columns through a
+ * {@link GeometryHandlerStrategy}.
  *
- * <p><strong>Database-Specific Handling:</strong></p>
- * <ul>
- *   <li><strong>MySQL:</strong> Uses ps.setBytes() with WKB binary data</li>
- *   <li><strong>PostgreSQL:</strong> Uses ps.setObject() with hex WKB string</li>
- * </ul>
+ * <p><strong>Configuration:</strong> handlers created with the no-arg constructor (as MyBatis and
+ * MyBatis-Plus do for {@code @TableField(typeHandler = ...)}) resolve the strategy
+ * ({@link GeometryStrategyFactory#getDefaultStrategy()}) and the default SRID
+ * ({@link GeometryFactoryProvider#getConfiguredSrid()}) on every call, so configuration applied
+ * after the handler was created takes effect. Explicit constructor arguments are used as given.</p>
  *
  * <p><strong>Write Operations (INSERT/UPDATE):</strong></p>
  * <ol>
- *   <li>Validate geometry object</li>
- *   <li>Ensure SRID is set (default: 4326)</li>
- *   <li>Convert using database-specific strategy</li>
- *   <li>Set parameter based on database type</li>
+ *   <li>Validate according to {@link GeometryDefaults#getWriteValidation()}
+ *       ({@link #validateGeometry(Geometry)})</li>
+ *   <li>Effective SRID: the geometry's SRID, or the default SRID when it is 0</li>
+ *   <li>Convert with {@link GeometryHandlerStrategy#convertForDatabase(Geometry, int)}; the parameter
+ *       object is never modified</li>
+ *   <li>Bind {@code byte[]} with {@code setBytes} (MySQL), {@code String} with
+ *       {@code setObject(value, Types.OTHER)} (PostGIS hex EWKB), anything else with {@code setObject}</li>
  * </ol>
  *
- * <p><strong>Read Operations (SELECT):</strong></p>
- * <ul>
- *   <li>Reads hex WKB string from ResultSet</li>
- *   <li>Parses using WkbUtil</li>
- *   <li>Returns typed JTS Geometry object</li>
- * </ul>
+ * <p><strong>Read Operations (SELECT):</strong> the strategy reads the column
+ * ({@link GeometryHandlerStrategy#read(ResultSet, String)}); built-in strategies decode unwrapped
+ * geometry columns as well as the expressions produced by the optional SELECT interceptor. A value
+ * whose geometry type does not match the handler's Java type raises an {@link SQLException}.</p>
  *
- * @param <T> the specific geometry type (Point, Polygon, LineString)
+ * @param <T> the specific geometry type (Point, Polygon, LineString, ...)
  */
 public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends BaseTypeHandler<T> {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
-    /** Default SRID to use when geometry has no SRID set */
+    /**
+     * Default SRID given to the constructor, or the configured SRID at construction time for the
+     * no-arg constructor.
+     *
+     * @deprecated a snapshot that ignores later configuration changes for handlers created with the
+     *     no-arg constructor; use {@link #getDefaultSrid()}.
+     */
+    @Deprecated
     protected final int defaultSrid;
 
-    /** Geometry handler strategy for database-specific operations */
+    /**
+     * Strategy given to the constructor, or the default strategy at construction time.
+     *
+     * @deprecated a snapshot that ignores later configuration changes for handlers created without
+     *     an explicit strategy; use {@link #getStrategy()}.
+     */
+    @Deprecated
     protected final GeometryHandlerStrategy strategy;
 
+    private final boolean explicitSrid;
+
+    private final GeometryHandlerStrategy explicitStrategy;
+
+    private final Class<?> geometryClass;
+
     /**
-     * Create a new AbstractGeometryTypeHandler with default SRID.
+     * Create a handler that resolves the default SRID and strategy from the global configuration
+     * ({@link GeometryFactoryProvider#getConfiguredSrid()},
+     * {@link GeometryStrategyFactory#getDefaultStrategy()}) on every call.
      */
     protected AbstractGeometryTypeHandler() {
-        this(WkbUtil.DEFAULT_SRID, GeometryStrategyFactory.getDefaultStrategy());
+        this(false, GeometryFactoryProvider.getConfiguredSrid(), null);
     }
 
     /**
-     * Create a new AbstractGeometryTypeHandler with specified default SRID.
+     * Create a handler with a fixed default SRID; the strategy is resolved on every call.
      *
-     * @param defaultSrid the default SRID to use
+     * @param defaultSrid the SRID given to geometries whose SRID is 0 (0 keeps them at 0)
      */
     protected AbstractGeometryTypeHandler(int defaultSrid) {
-        this(defaultSrid, GeometryStrategyFactory.getDefaultStrategy());
+        this(true, defaultSrid, null);
     }
 
     /**
-     * Create a new AbstractGeometryTypeHandler with specified default SRID and strategy.
+     * Create a handler with a fixed default SRID and strategy.
      * This constructor supports dependency injection for testability.
      *
-     * @param defaultSrid the default SRID to use
-     * @param strategy the database-specific geometry handler strategy
+     * @param defaultSrid the SRID given to geometries whose SRID is 0 (0 keeps them at 0)
+     * @param strategy    the database-specific geometry handler strategy; null resolves the default
+     *                    strategy on every call
      */
     protected AbstractGeometryTypeHandler(int defaultSrid, GeometryHandlerStrategy strategy) {
+        this(true, defaultSrid, strategy);
+    }
+
+    private AbstractGeometryTypeHandler(boolean explicitSrid, int defaultSrid, GeometryHandlerStrategy strategy) {
+        this.explicitSrid = explicitSrid;
         this.defaultSrid = defaultSrid;
-        this.strategy = strategy;
+        this.explicitStrategy = strategy;
+        this.strategy = strategy != null ? strategy : GeometryStrategyFactory.getDefaultStrategy();
+        this.geometryClass = resolveGeometryClass(getRawType());
+    }
+
+    private static Class<?> resolveGeometryClass(Type rawType) {
+        if (rawType instanceof Class<?> type && Geometry.class.isAssignableFrom(type)) {
+            return type;
+        }
+        return Geometry.class;
+    }
+
+    /**
+     * The strategy used for the current call: the explicit one, or the current global default.
+     *
+     * @return the strategy, never null
+     */
+    protected GeometryHandlerStrategy getStrategy() {
+        GeometryHandlerStrategy s = explicitStrategy;
+        return s != null ? s : GeometryStrategyFactory.getDefaultStrategy();
+    }
+
+    /**
+     * The SRID given to geometries whose SRID is 0: the explicit one, or the currently configured
+     * {@link GeometryFactoryProvider#getConfiguredSrid()}. May be 0.
+     *
+     * @return the default SRID
+     */
+    protected int getDefaultSrid() {
+        return explicitSrid ? defaultSrid : GeometryFactoryProvider.getConfiguredSrid();
     }
 
     @Override
@@ -85,109 +151,185 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
         if (parameter == null) {
             throw new SQLException("Parameter cannot be null");
         }
+        validateGeometry(parameter);
 
+        int srid = parameter.getSRID() != 0 ? parameter.getSRID() : getDefaultSrid();
+        Object dbValue;
         try {
-            // Validate geometry
-            validateGeometry(parameter);
+            dbValue = getStrategy().convertForDatabase(parameter, srid);
+        } catch (RuntimeException e) {
+            throw new SQLException("Failed to convert " + parameter.getGeometryType() + " to database format: "
+                + e.getMessage(), e);
+        }
 
-            // Ensure SRID is set
-            ensureSrid(parameter);
-
-            // Convert using database-specific strategy
-            Object dbValue = strategy.convertForDatabase(parameter);
-
-            if (log.isDebugEnabled()) {
-                log.debug("{} converted to database format: {}", getGeometryTypeName(),
-                    dbValue.getClass().getSimpleName());
-            }
-
-            // Set parameter based on type
-            if (dbValue instanceof byte[]) {
-                // MySQL: binary data
-                ps.setBytes(i, (byte[]) dbValue);
-            } else if (dbValue instanceof String) {
-                // PostgreSQL: hex WKB/EWKB string
-                // Must use Types.OTHER so PostgreSQL JDBC driver sends it as an untyped literal
-                // which allows PostGIS to parse it as geometry
-                ps.setObject(i, (String) dbValue, java.sql.Types.OTHER);
-            } else {
-                throw new SQLException("Unsupported database value type: " + dbValue.getClass().getName());
-            }
-
-        } catch (SQLException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Error converting {} to database format: {}", getGeometryTypeName(), e.getMessage());
-            throw new SQLException("Failed to convert " + getGeometryTypeName() + " to database format: " +
-                e.getMessage(), e);
+        if (dbValue instanceof byte[] bytes) {
+            // MySQL/MariaDB: internal geometry format
+            ps.setBytes(i, bytes);
+        } else if (dbValue instanceof String text) {
+            // PostgreSQL: hex EWKB, sent untyped (Types.OTHER) so PostGIS parses it as geometry
+            ps.setObject(i, text, Types.OTHER);
+        } else if (dbValue != null) {
+            ps.setObject(i, dbValue);
+        } else {
+            throw new SQLException("Strategy " + getStrategy().getClass().getName() + " converted a "
+                + parameter.getGeometryType() + " to null");
         }
     }
 
     @Override
     public T getNullableResult(ResultSet rs, String columnName) throws SQLException {
+        Geometry geometry;
         try {
-            String hexString = rs.getString(columnName);
-            return parseGeometry(hexString);
-        } catch (Exception e) {
-            log.error("Error reading {} from WKB: {}", getGeometryTypeName(), e.getMessage());
-            throw new SQLException("Failed to read " + getGeometryTypeName() + " from WKB data", e);
+            geometry = getStrategy().read(rs, columnName);
+        } catch (RuntimeException e) {
+            throw readFailure(columnName, e);
         }
+        return checkType(geometry, columnName);
     }
 
     @Override
     public T getNullableResult(ResultSet rs, int columnIndex) throws SQLException {
+        Geometry geometry;
         try {
-            String hexString = rs.getString(columnIndex);
-            return parseGeometry(hexString);
-        } catch (Exception e) {
-            log.error("Error reading {} from WKB: {}", getGeometryTypeName(), e.getMessage());
-            throw new SQLException("Failed to read " + getGeometryTypeName() + " from WKB data", e);
+            geometry = getStrategy().read(rs, columnIndex);
+        } catch (RuntimeException e) {
+            throw readFailure(columnIndex, e);
         }
+        return checkType(geometry, columnIndex);
     }
 
     @Override
     public T getNullableResult(CallableStatement cs, int columnIndex) throws SQLException {
+        Geometry geometry;
         try {
-            String hexString = cs.getString(columnIndex);
-            return parseGeometry(hexString);
-        } catch (Exception e) {
-            log.error("Error reading {} from WKB: {}", getGeometryTypeName(), e.getMessage());
-            throw new SQLException("Failed to read " + getGeometryTypeName() + " from WKB data", e);
+            geometry = getStrategy().read(cs, columnIndex);
+        } catch (RuntimeException e) {
+            throw readFailure(columnIndex, e);
+        }
+        return checkType(geometry, columnIndex);
+    }
+
+    private SQLException readFailure(Object column, RuntimeException e) {
+        return new SQLException("Failed to read " + getGeometryTypeName() + " from " + describe(column) + ": "
+            + e.getMessage(), e);
+    }
+
+    @SuppressWarnings("unchecked")
+    private T checkType(Geometry geometry, Object column) throws SQLException {
+        if (geometry == null || geometryClass.isInstance(geometry)) {
+            return (T) geometry;
+        }
+        throw new SQLException(describe(column) + " contains a " + geometry.getGeometryType()
+            + " but the mapped type is " + geometryClass.getName());
+    }
+
+    private static String describe(Object column) {
+        return column instanceof String ? "column '" + column + "'" : "column " + column;
+    }
+
+    /**
+     * Parse a value with the current strategy and check its type.
+     *
+     * @param hexString the database value
+     * @return the parsed geometry, or null if input is null/empty
+     * @throws IllegalArgumentException if the value holds another geometry type
+     * @deprecated no longer used by the handler, which reads through
+     *     {@link GeometryHandlerStrategy#read(ResultSet, String)}.
+     */
+    @Deprecated
+    @SuppressWarnings("unchecked")
+    protected T parseGeometry(String hexString) {
+        if (hexString == null || hexString.isEmpty()) {
+            return null;
+        }
+        Geometry geometry = getStrategy().parseFromDatabase(hexString);
+        if (geometry == null || geometryClass.isInstance(geometry)) {
+            return (T) geometry;
+        }
+        throw new IllegalArgumentException("Value is not a " + getGeometryTypeName() + " geometry, got: "
+            + geometry.getGeometryType());
+    }
+
+    /**
+     * Validate a geometry before it is written, according to
+     * {@link GeometryDefaults#getWriteValidation()}:
+     * {@link GeometryValidation#NONE} checks nothing, {@link GeometryValidation#BASIC} (default)
+     * rejects NaN or infinite X/Y ordinates, {@link GeometryValidation#FULL} additionally requires
+     * OGC validity ({@link Geometry#isValid()}). Empty geometries pass BASIC and FULL.
+     *
+     * <p>Subclasses may override this method to apply their own rules.</p>
+     *
+     * @param geometry the geometry to validate (not modified)
+     * @throws SQLException if geometry is invalid
+     */
+    protected void validateGeometry(T geometry) throws SQLException {
+        GeometryValidation level = GeometryDefaults.getWriteValidation();
+        if (level == GeometryValidation.NONE) {
+            return;
+        }
+        FiniteOrdinates finite = new FiniteOrdinates();
+        geometry.apply(finite);
+        if (finite.problem != null) {
+            throw new SQLException("Invalid " + geometry.getGeometryType() + " geometry: " + finite.problem);
+        }
+        if (level == GeometryValidation.FULL) {
+            TopologyValidationError error = new IsValidOp(geometry).getValidationError();
+            if (error != null) {
+                throw new SQLException("Invalid " + geometry.getGeometryType() + " geometry: " + error);
+            }
         }
     }
 
     /**
-     * Parse WKB hex string to geometry object.
-     *
-     * @param hexString the WKB hex string
-     * @return the parsed geometry, or null if input is null/empty
-     */
-    protected abstract T parseGeometry(String hexString);
-
-    /**
-     * Validate the geometry object.
-     *
-     * @param geometry the geometry to validate
-     * @throws SQLException if geometry is invalid
-     */
-    protected abstract void validateGeometry(T geometry) throws SQLException;
-
-    /**
-     * Get the geometry type name for logging.
+     * Get the geometry type name for messages: the simple name of the handler's Java type.
      *
      * @return the geometry type name
      */
-    protected abstract String getGeometryTypeName();
+    protected String getGeometryTypeName() {
+        return geometryClass.getSimpleName();
+    }
 
     /**
      * Ensure the geometry has a valid SRID.
      * If SRID is 0, set it to the default SRID.
      *
-     * @param geometry the geometry to check
+     * @param geometry the geometry to check (modified in place)
+     * @deprecated modifies the caller's geometry; the handler now passes the effective SRID to
+     *     {@link GeometryHandlerStrategy#convertForDatabase(Geometry, int)} instead.
      */
+    @Deprecated
     protected void ensureSrid(Geometry geometry) {
         if (geometry.getSRID() == 0) {
-            geometry.setSRID(defaultSrid);
+            geometry.setSRID(getDefaultSrid());
+        }
+    }
+
+    /**
+     * Finds the first NaN or infinite X/Y ordinate without allocating coordinates.
+     */
+    private static final class FiniteOrdinates implements CoordinateSequenceFilter {
+
+        private String problem;
+
+        @Override
+        public void filter(CoordinateSequence seq, int i) {
+            double x = seq.getX(i);
+            double y = seq.getY(i);
+            if (!Double.isFinite(x)) {
+                problem = "X coordinate is " + (Double.isNaN(x) ? "NaN" : "infinite");
+            } else if (!Double.isFinite(y)) {
+                problem = "Y coordinate is " + (Double.isNaN(y) ? "NaN" : "infinite");
+            }
+        }
+
+        @Override
+        public boolean isDone() {
+            return problem != null;
+        }
+
+        @Override
+        public boolean isGeometryChanged() {
+            return false;
         }
     }
 }
