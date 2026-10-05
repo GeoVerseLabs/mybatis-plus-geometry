@@ -1,49 +1,69 @@
 package io.github.geoverselabs.mybatis.geometry.jackson;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.SerializerProvider;
-import org.locationtech.jts.geom.*;
+import org.locationtech.jts.geom.Geometry;
 
 import java.io.IOException;
 
 /**
  * Jackson serializer for any JTS Geometry subtype to GeoJSON format.
  *
- * <p>Delegates to the type-specific serializer registered for the actual runtime type
- * via {@link SerializerProvider#defaultSerializeValue}.</p>
+ * <p>Dispatches on the runtime type (Multi* types are checked before GeometryCollection, since
+ * they are subclasses of it) and writes the GeoJSON directly, without looking up other
+ * serializers. It therefore works through {@code @JsonSerialize(using = GenericGeometrySerializer.class)}
+ * on a plain {@code ObjectMapper} without {@link GeometryJacksonModule}.</p>
  *
- * <p>The instanceof checks are ordered so that Multi* types (which extend GeometryCollection)
- * are checked before GeometryCollection itself.</p>
+ * <p>Instances created with the no-arg constructor use {@link GeoJsonOptions#getGlobal()} at call
+ * time; {@link #GenericGeometrySerializer(GeoJsonOptions)} fixes the options.
+ * {@link GeoJsonPrecision} on a property overrides the coordinate precision for that property.</p>
+ *
+ * <p>Usage in DTO:</p>
+ * <pre>{@code
+ * @JsonSerialize(using = GenericGeometrySerializer.class)
+ * @JsonDeserialize(using = GenericGeometryDeserializer.class)
+ * private Geometry geometry;
+ * }</pre>
  */
-public class GenericGeometrySerializer extends JsonSerializer<Geometry> {
+public class GenericGeometrySerializer extends GeoJsonGeometrySerializer<Geometry> {
+
+    private static final long serialVersionUID = 1L;
+
+    /**
+     * Create a serializer using the global {@link GeoJsonOptions} at call time.
+     */
+    public GenericGeometrySerializer() {
+        this(null, null);
+    }
+
+    /**
+     * Create a serializer with fixed options.
+     *
+     * @param options the options; null to use {@link GeoJsonOptions#getGlobal()} at call time
+     */
+    public GenericGeometrySerializer(GeoJsonOptions options) {
+        this(options, null);
+    }
+
+    private GenericGeometrySerializer(GeoJsonOptions options, Integer precisionOverride) {
+        super(Geometry.class, options, precisionOverride);
+    }
 
     @Override
-    public void serialize(Geometry geometry, JsonGenerator gen, SerializerProvider provider)
-            throws IOException {
-        if (geometry == null) {
-            gen.writeNull();
-            return;
-        }
+    GenericGeometrySerializer withSettings(GeoJsonOptions options, Integer precisionOverride) {
+        return new GenericGeometrySerializer(options, precisionOverride);
+    }
 
-        // Delegate to the specific serializer registered for the actual runtime type.
-        // Multi* types must be checked before GeometryCollection since they are subclasses.
-        if (geometry instanceof Point point) {
-            provider.defaultSerializeValue(point, gen);
-        } else if (geometry instanceof MultiPoint mp) {
-            provider.defaultSerializeValue(mp, gen);
-        } else if (geometry instanceof MultiLineString mls) {
-            provider.defaultSerializeValue(mls, gen);
-        } else if (geometry instanceof LineString ls) {
-            provider.defaultSerializeValue(ls, gen);
-        } else if (geometry instanceof MultiPolygon mp) {
-            provider.defaultSerializeValue(mp, gen);
-        } else if (geometry instanceof Polygon p) {
-            provider.defaultSerializeValue(p, gen);
-        } else if (geometry instanceof GeometryCollection gc) {
-            provider.defaultSerializeValue(gc, gen);
-        } else {
-            throw new IOException("Unsupported geometry type: " + geometry.getGeometryType());
-        }
+    /**
+     * Write {@code geometry} as a GeoJSON object (JSON null for null).
+     *
+     * @param geometry the geometry
+     * @param gen the generator
+     * @param provider the serializer provider
+     * @throws IOException on write failure or non-finite ordinates
+     */
+    @Override
+    public void serialize(Geometry geometry, JsonGenerator gen, SerializerProvider provider) throws IOException {
+        super.serialize(geometry, gen, provider);
     }
 }
