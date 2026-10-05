@@ -2,28 +2,26 @@ package io.github.geoverselabs.mybatis.geometry.jackson;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
-import io.github.geoverselabs.mybatis.geometry.exception.GeoJsonParseException;
-import io.github.geoverselabs.mybatis.geometry.exception.InvalidCoordinateException;
-import io.github.geoverselabs.mybatis.geometry.util.GeometryFactoryProvider;
-import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.LineString;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Jackson deserializer for GeoJSON LineString to JTS LineString.
  *
- * <p>Expected input format:</p>
+ * <p>Expected input format (at least 2 positions; {@code "coordinates": []} gives an empty
+ * line):</p>
  * <pre>{@code
  * {
  *   "type": "LineString",
  *   "coordinates": [[lon1, lat1], [lon2, lat2], ...]
  * }
  * }</pre>
+ *
+ * <p>Instances created with the no-arg constructor (for example through
+ * {@code @JsonDeserialize(using = LineStringDeserializer.class)}) use
+ * {@link GeoJsonOptions#getGlobal()} at call time. See {@link GeometryJacksonModule} for the
+ * parsing and validation rules.</p>
  *
  * <p>Usage in DTO:</p>
  * <pre>{@code
@@ -32,96 +30,48 @@ import java.util.List;
  * private LineString route;
  * }</pre>
  */
-public class LineStringDeserializer extends JsonDeserializer<LineString> {
+public class LineStringDeserializer extends GeoJsonGeometryDeserializer<LineString> {
 
-    private final boolean coordinateValidationEnabled;
+    private static final long serialVersionUID = 1L;
 
     /**
-     * Default constructor with coordinate validation enabled (WGS84 range).
+     * Create a deserializer using the global {@link GeoJsonOptions} at call time.
      */
     public LineStringDeserializer() {
-        this(true);
+        super(LineString.class, null, null);
     }
 
     /**
-     * Constructor with configurable coordinate validation.
+     * Create a deserializer using the global {@link GeoJsonOptions} at call time, with the
+     * coordinate range validation overridden.
      *
      * @param coordinateValidationEnabled when true, validates WGS84 range;
      *                                    when false, only validates Double.isFinite()
      */
     public LineStringDeserializer(boolean coordinateValidationEnabled) {
-        this.coordinateValidationEnabled = coordinateValidationEnabled;
+        super(LineString.class, null, coordinateValidationEnabled);
     }
 
+    /**
+     * Create a deserializer with fixed options.
+     *
+     * @param options the options; null to use {@link GeoJsonOptions#getGlobal()} at call time
+     */
+    public LineStringDeserializer(GeoJsonOptions options) {
+        super(LineString.class, options, null);
+    }
+
+    /**
+     * Read a GeoJSON geometry object.
+     *
+     * @param parser the parser, positioned at the object's start (or a field name inside it)
+     * @param ctx the deserialization context (may be null)
+     * @return the geometry, or null for JSON null
+     * @throws IOException on invalid GeoJSON ({@code GeoJsonParseException},
+     *                     {@code InvalidCoordinateException}) or parser failure
+     */
     @Override
     public LineString deserialize(JsonParser parser, DeserializationContext ctx) throws IOException {
-        JsonNode node = parser.getCodec().readTree(parser);
-
-        if (node == null || node.isNull()) {
-            return null;
-        }
-
-        // Validate GeoJSON type
-        JsonNode typeNode = node.get("type");
-        if (typeNode == null) {
-            throw new GeoJsonParseException("Missing 'type' field", "type");
-        }
-
-        String type = typeNode.asText();
-        if (!"LineString".equals(type)) {
-            throw GeoJsonParseException.forTypeMismatch("LineString", type);
-        }
-
-        // Validate coordinates
-        JsonNode coordinatesNode = node.get("coordinates");
-        if (coordinatesNode == null || !coordinatesNode.isArray()) {
-            throw new GeoJsonParseException("Missing or invalid 'coordinates' field", "coordinates");
-        }
-
-        // Parse coordinates
-        List<Coordinate> coordinates = new ArrayList<>();
-
-        for (int i = 0; i < coordinatesNode.size(); i++) {
-            JsonNode coordNode = coordinatesNode.get(i);
-            if (!coordNode.isArray() || coordNode.size() < 2) {
-                throw new GeoJsonParseException("Invalid coordinate pair at index " + i, "coordinates");
-            }
-
-            double longitude = coordNode.get(0).asDouble();
-            double latitude = coordNode.get(1).asDouble();
-
-            // Validate coordinates
-            validateCoordinate(longitude, latitude);
-
-            coordinates.add(new Coordinate(longitude, latitude));
-        }
-
-        // Validate minimum points
-        if (coordinates.size() < 2) {
-            throw new GeoJsonParseException("LineString must have at least 2 points", "coordinates");
-        }
-
-        return GeometryFactoryProvider.getFactory()
-            .createLineString(coordinates.toArray(new Coordinate[0]));
-    }
-
-    private void validateCoordinate(double longitude, double latitude) throws IOException {
-        if (coordinateValidationEnabled) {
-            // WGS84 range validation
-            if (longitude < -180 || longitude > 180) {
-                throw InvalidCoordinateException.forLongitude(longitude);
-            }
-            if (latitude < -90 || latitude > 90) {
-                throw InvalidCoordinateException.forLatitude(latitude);
-            }
-        } else {
-            // Only validate that coordinates are finite (not NaN or Infinity)
-            if (!Double.isFinite(longitude)) {
-                throw new InvalidCoordinateException("longitude", longitude, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
-            }
-            if (!Double.isFinite(latitude)) {
-                throw new InvalidCoordinateException("latitude", latitude, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
-            }
-        }
+        return super.deserialize(parser, ctx);
     }
 }
