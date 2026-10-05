@@ -2,6 +2,8 @@ package io.github.geoverselabs.mybatis.geometry.jackson;
 
 import io.github.geoverselabs.mybatis.geometry.support.GeometryValidation;
 
+import java.io.Serializable;
+
 /**
  * Options controlling GeoJSON reading and writing.
  *
@@ -20,7 +22,7 @@ import io.github.geoverselabs.mybatis.geometry.support.GeometryValidation;
 public record GeoJsonOptions(Integer coordinatePrecision,
                              boolean coordinateRangeValidation,
                              GeometryValidation validation,
-                             boolean fastDoubleParsing) {
+                             boolean fastDoubleParsing) implements Serializable {
 
     /** Largest supported {@link #coordinatePrecision()}. */
     public static final int MAX_PRECISION = 15;
