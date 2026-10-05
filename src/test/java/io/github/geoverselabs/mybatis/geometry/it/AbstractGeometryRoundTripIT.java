@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import io.github.geoverselabs.mybatis.geometry.handler.GeometryTypeHandler;
 import io.github.geoverselabs.mybatis.geometry.interceptor.GeometryFieldInterceptor;
 import io.github.geoverselabs.mybatis.geometry.strategy.DatabaseType;
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryHandlerStrategy;
@@ -28,9 +29,11 @@ import org.locationtech.jts.geom.PrecisionModel;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -94,10 +97,14 @@ abstract class AbstractGeometryRoundTripIT {
     }
 
     protected SqlSessionFactory factory(ReadMode mode) {
+        return factory(mode, dataSource());
+    }
+
+    protected SqlSessionFactory factory(ReadMode mode, DataSource dataSource) {
         GeometryHandlerStrategy strategy = GeometryStrategyFactory.getStrategy(databaseType());
         GeometryStrategyFactory.setDefaultStrategy(strategy);
         MybatisConfiguration cfg = new MybatisConfiguration();
-        cfg.setEnvironment(new Environment("it-" + mode, new JdbcTransactionFactory(), dataSource()));
+        cfg.setEnvironment(new Environment("it-" + mode, new JdbcTransactionFactory(), dataSource));
         if (mode == ReadMode.INTERCEPTOR) {
             cfg.addInterceptor(new GeometryFieldInterceptor(strategy));
         }
@@ -347,6 +354,26 @@ abstract class AbstractGeometryRoundTripIT {
                 () -> mapper.selectMultiPolygonAsPolygon(in.getId()));
             assertTrue(causeMessages(e).contains("contains a MultiPolygon but the mapped type is"),
                 () -> causeMessages(e));
+        }
+    }
+
+    /**
+     * MySQL/MariaDB: reads a GEOMETRY OUT parameter of a stored procedure through a handler.
+     */
+    protected void assertMySqlCallableOutParameter() throws SQLException {
+        try (Connection c = dataSource().getConnection(); Statement st = c.createStatement()) {
+            st.execute("DROP PROCEDURE IF EXISTS geo_out");
+            st.execute("CREATE PROCEDURE geo_out(OUT g GEOMETRY)"
+                + " BEGIN SET g = ST_GeomFromText('MULTIPOINT(1 2, 3 4)', 3857); END");
+            GeometryTypeHandler handler =
+                new GeometryTypeHandler(4326, GeometryStrategyFactory.getStrategy(DatabaseType.MYSQL));
+            try (CallableStatement cs = c.prepareCall("{call geo_out(?)}")) {
+                cs.registerOutParameter(1, Types.OTHER);
+                cs.execute();
+                Geometry g = handler.getResult(cs, 1);
+                assertEquals(3857, g.getSRID());
+                assertTrue(g.equalsExact(GeometryFixtures.wkt("MULTIPOINT ((1 2), (3 4))")), () -> "was " + g);
+            }
         }
     }
 

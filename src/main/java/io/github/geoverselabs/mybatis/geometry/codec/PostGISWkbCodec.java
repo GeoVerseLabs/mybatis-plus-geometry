@@ -18,9 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Decode input: a {@code String} or {@code byte[]} holding</p>
  * <ul>
  *   <li>hex (E)WKB, optionally with the bytea prefix {@code \x} — the text output of a PostGIS
- *       {@code geometry} column, {@code encode(ST_AsEWKB(col), 'hex')} or a bytea expression such as
- *       {@code ST_AsEWKB(col)} read with {@code getString()};</li>
- *   <li>raw (E)WKB bytes;</li>
+ *       {@code geometry} column, {@code encode(ST_AsEWKB(col), 'hex')} or a text-mode bytea expression
+ *       such as {@code ST_AsEWKB(col)} read with {@code getString()} — as a {@code String} or as
+ *       ASCII bytes ({@code getBytes()} of a text column);</li>
+ *   <li>raw (E)WKB bytes ({@code getBytes()} of a bytea expression);</li>
  *   <li>the legacy format "4-byte little-endian SRID + WKB" produced by earlier versions.</li>
  * </ul>
  * <p>An EWKB value without SRID flag decodes with SRID 0. Geometries with M ordinates are rejected.</p>

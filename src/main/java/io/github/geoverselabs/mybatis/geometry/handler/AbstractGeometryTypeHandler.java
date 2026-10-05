@@ -35,6 +35,8 @@ import java.sql.Types;
  *
  * <p><strong>Write Operations (INSERT/UPDATE):</strong></p>
  * <ol>
+ *   <li>Reject a geometry that is not an instance of the handler's Java type (for example a Polygon
+ *       bound with a {@code PointTypeHandler} in hand-written SQL)</li>
  *   <li>Validate according to {@link GeometryDefaults#getWriteValidation()}
  *       ({@link #validateGeometry(Geometry)})</li>
  *   <li>Effective SRID: the geometry's SRID, or the default SRID when it is 0</li>
@@ -151,7 +153,16 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
         if (parameter == null) {
             throw new SQLException("Parameter cannot be null");
         }
-        validateGeometry(parameter);
+        if (!geometryClass.isInstance(parameter)) {
+            // generics are erased: hand-written SQL can bind any geometry with this handler
+            throw new SQLException(getClass().getSimpleName() + " cannot write a " + parameter.getGeometryType()
+                + ": the mapped type is " + geometryClass.getName());
+        }
+        try {
+            validateGeometry(parameter);
+        } catch (RuntimeException e) {
+            throw new SQLException("Invalid " + parameter.getGeometryType() + " geometry: " + e.getMessage(), e);
+        }
 
         int srid = parameter.getSRID() != 0 ? parameter.getSRID() : getDefaultSrid();
         Object dbValue;
