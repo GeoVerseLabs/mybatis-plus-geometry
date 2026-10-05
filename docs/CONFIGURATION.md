@@ -291,8 +291,18 @@ When enabled, the `GeometryFieldInterceptor` intercepts MyBatis `StatementHandle
 
 1. **Only SELECT** statements are processed, and only their top-level select list (subqueries in `exists`, `inSql`, `apply` and derived tables are left alone; `UNION`/`WITH` statements are not rewritten)
 2. The entity is resolved from the statement's result map or the mapper's `BaseMapper<T>` type; its geometry columns come from MyBatis-Plus table metadata (any field whose type handler is a geometry TypeHandler)
-3. Geometry columns of the main table are wrapped, keeping their alias; `SELECT *` / `alias.*` is expanded to the entity's columns when the statement reads a single table
-4. Rewritten SQL is cached per statement text
+3. Geometry columns of the main table are wrapped, keeping their alias; `SELECT *` is expanded to the entity's columns when the statement reads a single table, and `alias.*` of the main table is expanded even in joins
+4. Rewritten SQL is cached per statement text (`clearCaches()` on the interceptor instance empties the caches)
+
+When the interceptor is registered in MyBatis XML instead of through Spring Boot, pin the database with the `databaseType` property; otherwise it follows the process-wide default strategy:
+
+```xml
+<plugins>
+    <plugin interceptor="io.github.geoverselabs.mybatis.geometry.interceptor.GeometryFieldInterceptor">
+        <property name="databaseType" value="POSTGRESQL"/>
+    </plugin>
+</plugins>
+```
 
 ### What Gets Rewritten
 
@@ -360,6 +370,8 @@ The `@*TableField` annotations are shortcuts for `@TableField(typeHandler = …)
 @TableField(value = "geo_location", typeHandler = PointTypeHandler.class)
 private Point location;
 ```
+
+Do not combine `@TableField("geo_location")` with `@PointTableField` on the same field: MyBatis-Plus uses the first `@TableField` it finds, so one of the two settings is lost (with the direct annotation first, no TypeHandler is bound).
 
 ### Custom Geometry Type
 

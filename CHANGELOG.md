@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GeoJSON: serializers recursed infinitely when used through `@JsonSerialize` without the module, and failed with Jackson default typing (e.g. Redis cache serializers)
 - GeoJSON errors are now `JsonMappingException`s with JSON location and path (HTTP 400 in Spring MVC)
 - `WkbUtil` kept a `ThreadLocal` WKB reader per thread (classloader leak on redeploy)
+- PostGIS reads of bytea expressions broke once pgjdbc switched a statement to binary transfer (after `prepareThreshold` executions); columns are now read with `getBytes()`
+- SELECT interceptor (when enabled): `SELECT *` subqueries inside `exists`/`inSql`/`apply` received the outer entity's columns; `SELECT * FROM t WHERE …` treated `WHERE` as a table alias; mappers extending a custom base mapper, quoted identifiers, `DISTINCT`, hints, aliases without `AS`, columns with `$` and string literals containing commas or `from` were mishandled; same-named columns of joined tables were wrapped; XML-registered interceptors used the MySQL strategy on PostgreSQL. It now uses a SQL scanner that rewrites only the top-level select list and takes column names from MyBatis-Plus table metadata
 
 ### Added
 
@@ -37,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable GeoJSON coordinate precision with zero-allocation number formatting, `@GeoJsonPrecision` for per-field overrides, and `GeoJsonOptions`
 - GeoJSON Z (altitude) support on input and output
 - `GeometryFactoryProvider.getFactory(srid)` caching and `setCoordinateSequenceType(...)`
+- `GeoJsonStreams` and `GeoJsonMediaTypes`: stream JSON arrays, FeatureCollections and JSON/GeoJSON Text Sequences (RFC 7464/8142) from any `Iterable`, including a MyBatis `Cursor`, without loading all rows
+- `GeometryFieldInterceptor` plugin property `databaseType` and instance method `clearCaches()`
 - Testcontainers integration tests for MySQL 8, MariaDB 11 and PostGIS 16, and a Spring Boot end-to-end test
 
 ### Changed

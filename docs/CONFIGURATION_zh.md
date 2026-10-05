@@ -291,8 +291,18 @@ ObjectMapper mapper = new ObjectMapper()
 
 1. **只处理 SELECT** 语句，且只改写最外层的查询列表（`exists`、`inSql`、`apply` 中的子查询和派生表保持不变；`UNION`/`WITH` 语句不改写）
 2. 从语句的结果映射或 Mapper 的 `BaseMapper<T>` 类型确定实体；几何列来自 MyBatis-Plus 的表元数据（类型处理器为几何 TypeHandler 的字段）
-3. 包装主表的几何列并保留其别名；单表查询时 `SELECT *` / `alias.*` 会展开为实体的列
-4. 改写结果按 SQL 文本缓存
+3. 包装主表的几何列并保留其别名；单表查询时 `SELECT *` 会展开为实体的列，主表的 `alias.*` 在关联查询中同样会展开
+4. 改写结果按 SQL 文本缓存（调用拦截器实例的 `clearCaches()` 可清空缓存）
+
+如果在 MyBatis XML 中注册拦截器而不是通过 Spring Boot，请用 `databaseType` 属性固定数据库类型；否则拦截器使用进程级默认策略：
+
+```xml
+<plugins>
+    <plugin interceptor="io.github.geoverselabs.mybatis.geometry.interceptor.GeometryFieldInterceptor">
+        <property name="databaseType" value="POSTGRESQL"/>
+    </plugin>
+</plugins>
+```
 
 ### 改写示例
 
@@ -360,6 +370,8 @@ public PointTypeHandler pointTypeHandler() {
 @TableField(value = "geo_location", typeHandler = PointTypeHandler.class)
 private Point location;
 ```
+
+不要在同一字段上同时使用 `@TableField("geo_location")` 和 `@PointTableField`：MyBatis-Plus 只采用找到的第一个 `@TableField`，其中一项设置会丢失（直接注解在前时不会绑定任何 TypeHandler）。
 
 ### 自定义几何类型
 
