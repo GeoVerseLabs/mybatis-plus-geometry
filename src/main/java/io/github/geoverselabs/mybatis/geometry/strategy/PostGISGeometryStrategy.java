@@ -20,11 +20,16 @@ import java.sql.SQLException;
  *
  * <p><strong>SELECT Operations:</strong></p>
  * <ul>
- *   <li>Reads {@code ResultSet.getString()}: the text output of a {@code geometry} column is hex
- *       EWKB, so plain columns are read without any SQL rewriting</li>
+ *   <li>Reads {@code ResultSet.getBytes()}: for a {@code geometry} column pgjdbc returns the text
+ *       output (hex EWKB) as ASCII bytes, so plain columns are read without any SQL rewriting</li>
  *   <li>Also accepts {@code encode(ST_AsEWKB(col), 'hex')} (used by the optional interceptor),
- *       bytea expressions such as {@code ST_AsEWKB(col)} ({@code \x}-prefixed hex), plain WKB hex
- *       and the legacy "SRID prefix + WKB" format of earlier versions</li>
+ *       bytea expressions such as {@code ST_AsEWKB(col)}, plain WKB hex and the legacy
+ *       "SRID prefix + WKB" format of earlier versions. {@code getBytes()} returns the decoded bytes
+ *       of a bytea in both text and binary transfer mode; {@code getString()} would return
+ *       {@code "[B@..."} once pgjdbc switches a statement to binary transfer (after
+ *       {@code prepareThreshold} executions on a connection).</li>
+ *   <li>OUT parameters of a {@link CallableStatement} are read with {@code getObject()}, because
+ *       pgjdbc only allows {@code getString()}/{@code getBytes()} for the registered SQL type.</li>
  * </ul>
  *
  * <p>No PostGIS JDBC extension is required.</p>
@@ -105,18 +110,36 @@ public class PostGISGeometryStrategy implements GeometryHandlerStrategy {
         return CodecSupport.decode(codec, dbValue);
     }
 
+    /**
+     * Read with {@link ResultSet#getBytes(String)}: ASCII hex for {@code geometry} and text columns,
+     * decoded bytes for {@code bytea} expressions (text or binary transfer).
+     */
     @Override
     public Geometry read(ResultSet rs, String columnLabel) throws SQLException {
-        return parseFromDatabase(rs.getString(columnLabel));
+        return parseFromDatabase(rs.getBytes(columnLabel));
     }
 
+    /**
+     * Read with {@link ResultSet#getBytes(int)}: ASCII hex for {@code geometry} and text columns,
+     * decoded bytes for {@code bytea} expressions (text or binary transfer).
+     */
     @Override
     public Geometry read(ResultSet rs, int columnIndex) throws SQLException {
-        return parseFromDatabase(rs.getString(columnIndex));
+        return parseFromDatabase(rs.getBytes(columnIndex));
     }
 
+    /**
+     * Read with {@link CallableStatement#getObject(int)}, which pgjdbc allows whatever SQL type the
+     * OUT parameter was registered with: a {@code String} (VARCHAR), a {@code byte[]} (BINARY) or a
+     * {@code PGobject} whose text is hex EWKB (OTHER).
+     */
     @Override
     public Geometry read(CallableStatement cs, int parameterIndex) throws SQLException {
-        return parseFromDatabase(cs.getString(parameterIndex));
+        Object value = cs.getObject(parameterIndex);
+        if (value == null || value instanceof String || value instanceof byte[]) {
+            return parseFromDatabase(value);
+        }
+        // e.g. org.postgresql.util.PGobject, whose toString() is the server's text output (hex EWKB)
+        return parseFromDatabase(value.toString());
     }
 }

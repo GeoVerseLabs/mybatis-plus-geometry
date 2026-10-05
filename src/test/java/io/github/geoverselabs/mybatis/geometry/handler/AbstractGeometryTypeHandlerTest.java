@@ -43,6 +43,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AbstractGeometryTypeHandlerTest {
@@ -199,6 +200,44 @@ class AbstractGeometryTypeHandlerTest {
     }
 
     @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void writesOfAnotherGeometryTypeAreRejected() throws SQLException {
+        // hand-written SQL such as #{shape,typeHandler=...PointTypeHandler} bound to a Polygon value
+        AbstractGeometryTypeHandler points = new PointTypeHandler(4326, MYSQL);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        assertThatThrownBy(() -> points.setNonNullParameter(ps, 1, wkt("POLYGON ((0 0, 1 0, 1 1, 0 0))"), null))
+            .isInstanceOf(SQLException.class)
+            .hasMessage("PointTypeHandler cannot write a Polygon: the mapped type is org.locationtech.jts.geom.Point");
+        verifyNoInteractions(ps);
+
+        // subtypes are accepted
+        AbstractGeometryTypeHandler collections = new GeometryCollectionTypeHandler(4326, MYSQL);
+        collections.setNonNullParameter(ps, 2, wkt("MULTIPOINT ((1 2), (3 4))"), null);
+        AbstractGeometryTypeHandler any = new GeometryTypeHandler(4326, MYSQL);
+        any.setNonNullParameter(ps, 3, wkt("LINESTRING (0 0, 1 1)"), null);
+        verify(ps).setBytes(eq(2), any(byte[].class));
+        verify(ps).setBytes(eq(3), any(byte[].class));
+    }
+
+    @Test
+    void runtimeFailuresDuringValidationBecomeSqlExceptions() {
+        IllegalStateException boom = new IllegalStateException("topology failure");
+        PolygonTypeHandler handler = new PolygonTypeHandler(4326, MYSQL) {
+            @Override
+            protected void validateGeometry(Polygon polygon) {
+                throw boom;
+            }
+        };
+        PreparedStatement ps = mock(PreparedStatement.class);
+        assertThatThrownBy(() -> handler.setNonNullParameter(ps, 1,
+            (Polygon) wkt("POLYGON ((0 0, 1 0, 1 1, 0 0))"), null))
+            .isInstanceOf(SQLException.class)
+            .hasMessage("Invalid Polygon geometry: topology failure")
+            .hasCause(boom);
+        verifyNoInteractions(ps);
+    }
+
+    @Test
     void nullParameterIsRejected() {
         assertThatThrownBy(() -> new PointTypeHandler(4326, MYSQL)
             .setNonNullParameter(mock(PreparedStatement.class), 1, null, null))
@@ -323,7 +362,7 @@ class AbstractGeometryTypeHandlerTest {
         ResultSet rs = mock(ResultSet.class);
         String nativeText = ((String) POSTGIS.convertForDatabase(
             wkt("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))", 4326))).toUpperCase(java.util.Locale.ROOT);
-        when(rs.getString("mpg")).thenReturn(nativeText);
+        when(rs.getBytes("mpg")).thenReturn(nativeText.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
         MultiPolygon mp = new MultiPolygonTypeHandler().getNullableResult(rs, "mpg");
         assertThat(mp.getNumGeometries()).isEqualTo(1);
         assertThat(mp.getGeometryN(0).getSRID()).isEqualTo(4326);
@@ -366,10 +405,10 @@ class AbstractGeometryTypeHandlerTest {
     @Test
     void malformedValuesBecomeSqlExceptionsWithCause() throws SQLException {
         ResultSet rs = mock(ResultSet.class);
-        when(rs.getString("geom")).thenReturn("not hex");
-        when(rs.getString(5)).thenReturn("0101000020e6100000");
+        when(rs.getBytes("geom")).thenReturn("not hex".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        when(rs.getBytes(5)).thenReturn("0101000020e6100000".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
         CallableStatement cs = mock(CallableStatement.class);
-        when(cs.getString(2)).thenReturn("zz");
+        when(cs.getObject(2)).thenReturn("zz");
         GeometryTypeHandler handler = new GeometryTypeHandler(4326, POSTGIS);
 
         assertThatThrownBy(() -> handler.getNullableResult(rs, "geom"))

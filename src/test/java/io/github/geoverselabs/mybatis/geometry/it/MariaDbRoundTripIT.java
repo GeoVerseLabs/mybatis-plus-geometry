@@ -3,10 +3,12 @@ package io.github.geoverselabs.mybatis.geometry.it;
 import io.github.geoverselabs.mybatis.geometry.strategy.DatabaseType;
 import org.apache.ibatis.datasource.pooled.PooledDataSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MariaDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 
 import javax.sql.DataSource;
+import java.sql.SQLException;
 import java.util.List;
 
 class MariaDbRoundTripIT extends AbstractGeometryRoundTripIT {
@@ -62,5 +64,10 @@ class MariaDbRoundTripIT extends AbstractGeometryRoundTripIT {
     @Override
     protected boolean supportsZ() {
         return false;
+    }
+
+    @Test
+    void readsCallableOutParameter() throws SQLException {
+        assertMySqlCallableOutParameter();
     }
 }

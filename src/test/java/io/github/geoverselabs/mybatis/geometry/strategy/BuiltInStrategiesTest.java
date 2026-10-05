@@ -122,17 +122,45 @@ class BuiltInStrategiesTest {
     // ==================== PostGIS ====================
 
     @Test
-    void postgisReadsStringsByLabelIndexAndCallable() throws SQLException {
+    void postgisReadsBytesByLabelAndIndex() throws SQLException {
         ResultSet rs = mock(ResultSet.class);
-        when(rs.getString("geom")).thenReturn(EWKB_POINT.toUpperCase());
-        when(rs.getString(2)).thenReturn("\\x" + EWKB_POINT);
-        CallableStatement cs = mock(CallableStatement.class);
-        when(cs.getString(1)).thenReturn(EWKB_POINT);
+        // geometry column: pgjdbc returns the text output (uppercase hex EWKB) as ASCII bytes
+        when(rs.getBytes("geom")).thenReturn(EWKB_POINT.toUpperCase().getBytes(StandardCharsets.US_ASCII));
+        // bytea expression (ST_AsEWKB): decoded bytes, in text and in binary transfer mode
+        when(rs.getBytes(2)).thenReturn(hex(EWKB_POINT));
+        // encode(ST_AsEWKB(col), 'hex') of the interceptor: lowercase ASCII hex
+        when(rs.getBytes(3)).thenReturn(EWKB_POINT.getBytes(StandardCharsets.US_ASCII));
 
         assertThat(postgis.read(rs, "geom").getSRID()).isEqualTo(4326);
         assertThat(((Point) postgis.read(rs, 2)).getY()).isEqualTo(2.0);
-        assertThat(postgis.read(cs, 1)).isInstanceOf(Point.class);
+        assertThat(((Point) postgis.read(rs, 3)).getX()).isEqualTo(1.0);
         assertThat(postgis.read(mock(ResultSet.class), "geom")).isNull();
+        assertThat(postgis.read(mock(ResultSet.class), 1)).isNull();
+        // getString() of a binary-transferred bytea is "[B@...": never used
+        verify(rs, never()).getString(anyString());
+        verify(rs, never()).getString(anyInt());
+    }
+
+    @Test
+    void postgisReadsCallableOutParametersWhateverTheRegisteredType() throws SQLException {
+        CallableStatement cs = mock(CallableStatement.class);
+        // registered as VARCHAR, BINARY and OTHER (pgjdbc returns a PGobject whose text is hex EWKB)
+        when(cs.getObject(1)).thenReturn(EWKB_POINT);
+        when(cs.getObject(2)).thenReturn(hex(EWKB_POINT));
+        when(cs.getObject(3)).thenReturn(new Object() {
+            @Override
+            public String toString() {
+                return EWKB_POINT.toUpperCase();
+            }
+        });
+
+        assertThat(postgis.read(cs, 1)).isInstanceOf(Point.class);
+        assertThat(postgis.read(cs, 2).getSRID()).isEqualTo(4326);
+        assertThat(((Point) postgis.read(cs, 3)).getY()).isEqualTo(2.0);
+        assertThat(postgis.read(cs, 4)).isNull();
+        // pgjdbc rejects getString()/getBytes() unless the parameter was registered with that type
+        verify(cs, never()).getString(anyInt());
+        verify(cs, never()).getBytes(anyInt());
     }
 
     @Test
