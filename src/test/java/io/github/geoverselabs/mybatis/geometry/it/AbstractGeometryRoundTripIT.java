@@ -8,15 +8,23 @@ import io.github.geoverselabs.mybatis.geometry.interceptor.GeometryFieldIntercep
 import io.github.geoverselabs.mybatis.geometry.strategy.DatabaseType;
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryHandlerStrategy;
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryStrategyFactory;
+import io.github.geoverselabs.mybatis.geometry.support.GeometryDefaults;
+import io.github.geoverselabs.mybatis.geometry.util.GeometryFactoryProvider;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
@@ -28,6 +36,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -47,13 +56,36 @@ abstract class AbstractGeometryRoundTripIT {
 
     protected abstract List<String> schema();
 
+    /**
+     * DDL for table {@code geo_srid (id, name, pt)} whose point column is declared with SRID 4326.
+     */
+    protected abstract List<String> sridTableSchema();
+
+    /** Whether the database rejects a geometry whose SRID differs from the column SRID. */
+    protected abstract boolean enforcesColumnSrid();
+
+    /** Empty geometries (WKT) that the database can store in an unconstrained geometry column. */
+    protected abstract List<String> storableEmptyGeometries();
+
+    /** Whether the database stores Z ordinates. */
+    protected abstract boolean supportsZ();
+
     @BeforeEach
     void createSchema() throws SQLException {
         try (Connection c = dataSource().getConnection(); Statement st = c.createStatement()) {
             for (String sql : schema()) {
                 st.execute(sql);
             }
+            for (String sql : sridTableSchema()) {
+                st.execute(sql);
+            }
         }
+    }
+
+    @AfterEach
+    void resetDefaults() {
+        GeometryDefaults.reset();
+        GeometryFactoryProvider.reset();
     }
 
     @AfterAll
@@ -70,6 +102,7 @@ abstract class AbstractGeometryRoundTripIT {
             cfg.addInterceptor(new GeometryFieldInterceptor(strategy));
         }
         cfg.addMapper(GeoAllMapper.class);
+        cfg.addMapper(GeoSridPointMapper.class);
         return new MybatisSqlSessionFactoryBuilder().build(cfg);
     }
 
@@ -176,6 +209,155 @@ abstract class AbstractGeometryRoundTripIT {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void updateByIdRewritesGeometriesThatWereReadBack(ReadMode mode) {
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoAllMapper mapper = session.getMapper(GeoAllMapper.class);
+            GeoAll in = GeometryFixtures.fullEntity("rw");
+            // OGC-invalid but storable: two squares sharing an edge (common in administrative data)
+            in.setMpg((MultiPolygon) GeometryFixtures.wkt(
+                "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 1, 0 0)), ((1 0, 2 0, 2 1, 1 1, 1 0)))"));
+            mapper.insert(in);
+
+            GeoAll loaded = mapper.selectById(in.getId());
+            loaded.setName("renamed");
+            assertEquals(1, mapper.updateById(loaded));
+
+            GeoAll out = mapper.selectById(in.getId());
+            assertEquals("renamed", out.getName());
+            assertGeometry(in.getMpg(), out.getMpg());
+            assertGeometry(GeometryFixtures.polygonWithHole(), out.getPg());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void sridConstrainedColumnRoundTrip(ReadMode mode) {
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoSridPointMapper mapper = session.getMapper(GeoSridPointMapper.class);
+            Point untagged = new GeometryFactory().createPoint(new Coordinate(121.4737, 31.2304));
+            GeoSridPoint in = new GeoSridPoint();
+            in.setName("srid");
+            in.setPt(untagged);
+            assertEquals(1, mapper.insert(in));
+            assertEquals(0, untagged.getSRID(), "insert must not modify the entity's geometry");
+
+            GeoSridPoint out = mapper.selectById(in.getId());
+            assertGeometry(GeometryFixtures.point(), out.getPt());
+
+            out.setName("srid2");
+            assertEquals(1, mapper.updateById(out));
+            assertGeometry(GeometryFixtures.point(), mapper.selectById(in.getId()).getPt());
+
+            if (enforcesColumnSrid()) {
+                GeoSridPoint wrong = new GeoSridPoint();
+                wrong.setName("wrong");
+                wrong.setPt((Point) GeometryFixtures.wkt("POINT (13522420.5 3662269.25)", 3857));
+                assertThrows(RuntimeException.class, () -> mapper.insert(wrong));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void untaggedGeometriesUseConfiguredDefaultSrid(ReadMode mode) {
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoAllMapper mapper = session.getMapper(GeoAllMapper.class);
+            GeometryFactory untaggedFactory = new GeometryFactory(new PrecisionModel(), 0);
+
+            GeometryFactoryProvider.setDefaultSrid(3857);
+            GeoAll mercator = new GeoAll();
+            mercator.setName("default-3857");
+            mercator.setGeom(untaggedFactory.createPoint(new Coordinate(1, 2)));
+            mapper.insert(mercator);
+            assertEquals(0, mercator.getGeom().getSRID());
+            assertEquals(3857, mapper.selectById(mercator.getId()).getGeom().getSRID());
+
+            GeometryFactoryProvider.setDefaultSrid(0);
+            GeoAll cartesian = new GeoAll();
+            cartesian.setName("default-0");
+            cartesian.setGeom(untaggedFactory.createPoint(new Coordinate(500000, 4000000)));
+            mapper.insert(cartesian);
+            Geometry out = mapper.selectById(cartesian.getId()).getGeom();
+            assertEquals(0, out.getSRID());
+            assertTrue(out.equalsExact(cartesian.getGeom()));
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void emptyGeometriesRoundTrip(ReadMode mode) {
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoAllMapper mapper = session.getMapper(GeoAllMapper.class);
+            for (String wkt : storableEmptyGeometries()) {
+                GeoAll in = new GeoAll();
+                in.setName(wkt);
+                in.setGeom(GeometryFixtures.wkt(wkt));
+                mapper.insert(in);
+
+                Geometry out = mapper.selectById(in.getId()).getGeom();
+                assertNotNull(out, wkt);
+                assertTrue(out.isEmpty(), () -> wkt + " read back as " + out);
+                assertEquals(in.getGeom().getGeometryType(), out.getGeometryType(), wkt);
+                assertEquals(4326, out.getSRID(), wkt);
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void zOrdinatesFollowPreserveZ(ReadMode mode) {
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoAllMapper mapper = session.getMapper(GeoAllMapper.class);
+            Geometry withZ = GeometryFixtures.wkt("LINESTRING Z (121.47 31.23 10, 121.48 31.24 12.5)");
+
+            GeoAll dropped = new GeoAll();
+            dropped.setName("z-dropped");
+            dropped.setGeom(withZ);
+            mapper.insert(dropped);
+            Geometry flat = mapper.selectById(dropped.getId()).getGeom();
+            assertTrue(Double.isNaN(flat.getCoordinates()[0].getZ()), "Z must be dropped by default");
+            assertTrue(flat.equalsExact(withZ));
+
+            GeometryDefaults.setPreserveZ(true);
+            GeoAll kept = new GeoAll();
+            kept.setName("z-kept");
+            kept.setGeom(withZ);
+            mapper.insert(kept);
+            Geometry out = mapper.selectById(kept.getId()).getGeom();
+            if (supportsZ()) {
+                assertEquals(12.5, out.getCoordinates()[1].getZ());
+            } else {
+                assertTrue(Double.isNaN(out.getCoordinates()[1].getZ()));
+            }
+            assertTrue(out.equalsExact(withZ));
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void typeMismatchIsReported(ReadMode mode) {
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoAllMapper mapper = session.getMapper(GeoAllMapper.class);
+            GeoAll in = GeometryFixtures.fullEntity("mismatch");
+            mapper.insert(in);
+
+            RuntimeException e = assertThrows(RuntimeException.class,
+                () -> mapper.selectMultiPolygonAsPolygon(in.getId()));
+            assertTrue(causeMessages(e).contains("contains a MultiPolygon but the mapped type is"),
+                () -> causeMessages(e));
+        }
+    }
+
+    protected static String causeMessages(Throwable e) {
+        StringBuilder sb = new StringBuilder();
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            sb.append(t.getMessage()).append(" | ");
+        }
+        return sb.toString();
+    }
+
     protected static void assertEntity(GeoAll expected, GeoAll actual) {
         assertNotNull(actual, "entity not found");
         assertEquals(expected.getName(), actual.getName());
@@ -194,5 +376,8 @@ abstract class AbstractGeometryRoundTripIT {
         assertEquals(expected.getGeometryType(), actual.getGeometryType());
         assertTrue(expected.equalsExact(actual), () -> "expected " + expected + " but was " + actual);
         assertEquals(expected.getSRID(), actual.getSRID(), () -> "SRID of " + actual);
+        for (int i = 0; i < actual.getNumGeometries(); i++) {
+            assertEquals(expected.getSRID(), actual.getGeometryN(i).getSRID(), () -> "SRID of members of " + actual);
+        }
     }
 }

@@ -1,7 +1,12 @@
 package io.github.geoverselabs.mybatis.geometry.interceptor;
 
 import com.baomidou.mybatisplus.annotation.TableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.GeometryCollectionTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.GeometryTableField;
 import io.github.geoverselabs.mybatis.geometry.annotation.LineStringTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.MultiLineStringTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.MultiPointTableField;
+import io.github.geoverselabs.mybatis.geometry.annotation.MultiPolygonTableField;
 import io.github.geoverselabs.mybatis.geometry.annotation.PointTableField;
 import io.github.geoverselabs.mybatis.geometry.annotation.PolygonTableField;
 import org.slf4j.Logger;
@@ -96,7 +101,12 @@ public class GeometryFieldResolver {
     private boolean isGeometryField(Field field) {
         return field.isAnnotationPresent(PointTableField.class)
             || field.isAnnotationPresent(PolygonTableField.class)
-            || field.isAnnotationPresent(LineStringTableField.class);
+            || field.isAnnotationPresent(LineStringTableField.class)
+            || field.isAnnotationPresent(MultiPointTableField.class)
+            || field.isAnnotationPresent(MultiLineStringTableField.class)
+            || field.isAnnotationPresent(MultiPolygonTableField.class)
+            || field.isAnnotationPresent(GeometryCollectionTableField.class)
+            || field.isAnnotationPresent(GeometryTableField.class);
     }
 
     private String resolveColumnName(Field field) {
