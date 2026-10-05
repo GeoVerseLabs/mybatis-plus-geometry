@@ -13,15 +13,16 @@
 - 🚀 **零配置** - Spring Boot 2.7+ 和 3.x 自动配置
 - 🗄️ **多数据库支持** - MySQL 和 PostgreSQL/PostGIS，自动检测
 - 📍 **几何类型** - 支持 Point、LineString、Polygon、MultiPoint、MultiLineString、MultiPolygon、GeometryCollection 及通用 Geometry
-- 🔄 **GeoJSON 序列化** - 为 REST API 提供 Jackson 序列化器/反序列化器
-- ⚡ **SQL 拦截器** - SELECT 查询自动添加 HEX() 包装
+- 🔄 **GeoJSON 序列化** - 为 REST API 提供流式 Jackson 序列化器/反序列化器（RFC 7946）
+- ⚡ **原生列读取** - 直接读取几何列，无需改写 SQL；MySQL/MariaDB 以二进制 WKB 传输
+- 📦 **传输效率** - 可配置 GeoJSON 坐标精度、流式输出 FeatureCollection / GeoJSON 文本序列、可选紧凑坐标存储
 - 🎯 **类型安全注解** - `@PointTableField`、`@LineStringTableField`、`@PolygonTableField`、`@MultiPointTableField`、`@MultiLineStringTableField`、`@MultiPolygonTableField`、`@GeometryCollectionTableField`、`@GeometryTableField`
 
 ## 系统要求
 
 - Java 17+
 - Spring Boot 2.7+ 或 3.x
-- MyBatis Plus 3.5+
+- MyBatis Plus 3.5.6+（几何注解依赖元注解形式的 `@TableField`，3.5.6 起支持）。Spring Boot 3 请使用 `mybatis-plus-spring-boot3-starter`，Spring Boot 2.7 使用 `mybatis-plus-boot-starter`。
 - MySQL 8.0+ 或 PostgreSQL 12+ with PostGIS
 
 ## 安装
@@ -219,18 +220,103 @@ public class WarehouseDTO {
 ```yaml
 mybatis:
   geometry:
-    # 默认 SRID（默认值：4326，WGS84 坐标系）
+    # 未设置 SRID 的几何使用的默认 SRID（默认值：4326，WGS84 坐标系）
     default-srid: 4326
-    
-    # 启用 SQL 拦截器自动添加 HEX() 包装（默认值：true）
-    interceptor-enabled: true
-    
-    # 数据库类型（如果不指定则自动检测）
+
+    # 数据库类型（不指定则从 DataSource 自动检测）
     # 支持的值：MYSQL、POSTGRESQL
     database-type: MYSQL
+
+    # 写库前的校验级别：FULL（OGC isValid）、BASIC（仅校验坐标为有限数值）、NONE
+    write-validation: BASIC
+
+    # 向 PostGIS 写入 Z 值（MySQL/MariaDB 仅支持二维）
+    preserve-z: false
+
+    # 库内创建几何时的坐标存储方式：ARRAY 或 PACKED（double[]，堆内存更省）
+    coordinate-sequence: ARRAY
+
+    # 旧版 SELECT 改写（HEX()/encode(ST_AsEWKB())），已不再需要（默认值：false）
+    interceptor-enabled: false
+
+    geojson:
+      # 每个坐标值输出的小数位数；不设置则输出完整 double 精度。RFC 7946 建议 6 位
+      coordinate-precision: 6
+      # GeoJSON 输入校验：FULL（多边形额外做 OGC isValid）或 BASIC
+      validation: FULL
+      # 输入坐标的 WGS84 范围校验；不设置时仅在 default-srid 为 4326 时启用
+      coordinate-range-validation: true
 ```
 
-> **说明：** 当 `default-srid` 为 4326（WGS84）时，GeoJSON 反序列化器自动校验坐标范围（经度 -180~180，纬度 -90~90）。当使用其他 SRID（如 3857）时，范围校验自动禁用，仅检查坐标是否为有限数值。
+> **说明：** 当 `default-srid` 为 4326（WGS84）时，GeoJSON 反序列化器校验坐标范围（经度 -180~180，纬度 -90~90），可用 `geojson.coordinate-range-validation` 覆盖。NaN 和无穷值始终会被拒绝。
+
+全部配置项见[配置参考](docs/CONFIGURATION_zh.md)。
+
+## 传输效率
+
+以 5000 个顶点的多边形实测（JDK 21，单线程；对比 1.0.1 的输出）：
+
+| 优化项 | 开启方式 | 效果 |
+|---|---|---|
+| 原生二进制读取 | 默认（不再使用 SQL 拦截器） | MySQL/MariaDB 传输原始 WKB 而不是 HEX() 文本：字节数减半，解码快约 2 倍 |
+| GeoJSON 坐标精度 | `mybatis.geometry.geojson.coordinate-precision: 6` | JSON 体积减少 42%，写出快 2 倍；gzip 后再小 57% |
+| HTTP 压缩 | `server.compression.*`（见下文） | GeoJSON 体积减少 60–75% |
+| 流式 GeoJSON 解析 | 默认 | 单次遍历、不建 JSON 树、快速 double 解析：入站 CPU 降低约 40% |
+| 紧凑坐标存储 | `mybatis.geometry.coordinate-sequence: PACKED` | 每个解码后的几何堆内存约降为 1/2.7 |
+| 大结果集流式输出 | `GeoJsonStreams` + MyBatis `Cursor` | 内存占用恒定，不再随行数增长 |
+
+### HTTP 压缩
+
+坐标的前几位数字高度重复，GeoJSON 压缩效果很好。在 Spring Boot 中为 GeoJSON 媒体类型开启压缩：
+
+```yaml
+server:
+  compression:
+    enabled: true
+    mime-types: application/json,application/geo+json,application/geo+json-seq
+    min-response-size: 2KB
+```
+
+### 字段级精度
+
+```java
+public class WarehouseDTO {
+    @GeoJsonPrecision(7)                     // 约 1 厘米
+    private Point location;
+
+    @GeoJsonPrecision(GeoJsonPrecision.FULL) // 忽略全局设置，输出完整精度
+    private Polygon boundary;
+}
+```
+
+### 大结果集流式输出
+
+`GeoJsonStreams` 逐条写出数据，MyBatis `Cursor` 无需整体加载到内存。写出期间需保持游标所在会话打开（例如在 `@Transactional` 方法内）：
+
+```java
+public interface WarehouseMapper extends BaseMapper<Warehouse> {
+    @Select("SELECT * FROM warehouse")
+    @Options(fetchSize = Integer.MIN_VALUE)          // MySQL：逐行流式读取，不在驱动内缓冲
+    @ResultMap("mybatis-plus_Warehouse")             // 复用 autoResultMap（几何 TypeHandler）
+    Cursor<Warehouse> streamAll();
+}
+```
+
+```java
+@GetMapping(value = "/warehouses", produces = GeoJsonMediaTypes.GEO_JSON)
+@Transactional(readOnly = true)
+public void export(HttpServletResponse response) throws IOException {
+    response.setContentType(GeoJsonMediaTypes.GEO_JSON);
+    try (Cursor<Warehouse> cursor = warehouseMapper.streamAll()) {
+        GeoJsonStreams.writeFeatureCollection(objectMapper, cursor,
+            Warehouse::getBoundary,                          // 几何
+            w -> Map.of("name", w.getName()),                // 属性
+            response.getOutputStream());
+    }
+}
+```
+
+`GeoJsonStreams.writeFeatureSequence(...)` 输出 GeoJSON 文本序列（`application/geo+json-seq`，RFC 8142），客户端可以逐条解析。MySQL 需在游标查询上声明 `@Options(fetchSize = Integer.MIN_VALUE)` 才会流式返回；PostgreSQL 需在事务内设置正数 `fetchSize`。
 
 ## 数据库支持
 
@@ -283,22 +369,23 @@ CREATE TABLE warehouse (
 ### 插入/更新流程
 
 ```
-Java Point/Polygon 对象
-    ↓ (TypeHandler.setNonNullParameter)
-WKB 字节数组
-    ↓ (JDBC setBytes)
+Java 几何对象
+    ↓ (TypeHandler.setNonNullParameter：校验，不修改传入对象)
+MySQL/MariaDB：SRID + WKB 字节（setBytes）   |   PostGIS：十六进制 EWKB（setObject）
+    ↓
 数据库 GEOMETRY 列
 ```
 
 ### 查询流程
 
 ```
-数据库 GEOMETRY 列
-    ↓ (SQL 拦截器添加 HEX())
-WKB 十六进制字符串
-    ↓ (TypeHandler.getNullableResult)
-Java Point/Polygon 对象
+数据库 GEOMETRY 列（原样查询，不改写 SQL）
+    ↓ MySQL/MariaDB：getBytes() → SRID + WKB   |   PostGIS：getString() → 十六进制 EWKB
+    ↓ (TypeHandler.getNullableResult → strategy.read)
+Java 几何对象（每个子几何都保留 SRID）
 ```
+
+TypeHandler 同样能解析旧版拦截器产生的值（`HEX(col)`、`encode(ST_AsEWKB(col), 'hex')`），手写 SQL 中包装了几何列的查询无需修改。
 
 ## API 参考
 
@@ -328,13 +415,23 @@ Java Point/Polygon 对象
 | `MultiPolygonSerializer` / `MultiPolygonDeserializer` | GeoJSON MultiPolygon 序列化 |
 | `GeometryCollectionSerializer` / `GeometryCollectionDeserializer` | GeoJSON GeometryCollection 序列化 |
 | `GenericGeometrySerializer` / `GenericGeometryDeserializer` | 通用几何类型 GeoJSON 序列化 |
+| `GeoJsonOptions` | 序列化器的精度、校验与解析选项 |
+| `@GeoJsonPrecision` | 字段级坐标精度 |
+
+### 流式输出
+
+| 类 | 说明 |
+|----|------|
+| `GeoJsonStreams` | 从任意 `Iterable`（包括 MyBatis `Cursor`）流式输出 JSON 数组、FeatureCollection 和 GeoJSON 文本序列 |
+| `GeoJsonMediaTypes` | `application/geo+json`、`application/geo+json-seq` 常量 |
 
 ### 工具类
 
 | 类 | 说明 |
 |----|------|
 | `WkbUtil` | WKB 格式转换工具 |
-| `GeometryFactoryProvider` | 线程安全的 GeometryFactory 提供者 |
+| `GeometryFactoryProvider` | 线程安全、按 SRID 缓存的 GeometryFactory 提供者 |
+| `GeometryDefaults` | 进程级的写库校验与 Z 值处理默认值 |
 
 ## 赞助支持
 
