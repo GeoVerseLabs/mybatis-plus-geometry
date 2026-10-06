@@ -377,9 +377,18 @@ class GeoJsonGeometryReaderTest {
         }
 
         @Test
-        void fourthElementMustStillBeANumber() {
-            assertThatThrownBy(() -> read(geo("Point", "[1,2,3,\"m\"]"), Point.class))
-                .isInstanceOf(GeoJsonParseException.class);
+        void elementsAfterTheAltitudeAreIgnoredLikeOneZero() throws IOException {
+            Point point = read(geo("Point", "[1,2,3,\"m\",{\"x\":[1]},null]"), Point.class);
+            assertThat(point.getCoordinate().getZ()).isEqualTo(3.0);
+        }
+
+        @Test
+        void nonNumericAltitudeIsIgnoredLikeOneZero() throws IOException {
+            for (String altitude : new String[] {"null", "true", "\"high\"", "[5]"}) {
+                Point point = read(geo("Point", "[1,2," + altitude + "]"), Point.class);
+                assertThat(point.getX()).isEqualTo(1.0);
+                assertThat(point.getCoordinateSequence().hasZ()).as(altitude).isFalse();
+            }
         }
 
         @Test
@@ -433,7 +442,7 @@ class GeoJsonGeometryReaderTest {
 
         @ParameterizedTest
         @ValueSource(strings = {
-            "[\"abc\",\"xyz\"]", "[null,null]", "[true,false]", "[\"1\",\"2\"]", "[1,\"2\"]", "[1,null]",
+            "[\"abc\",\"xyz\"]", "[null,null]", "[true,false]", "[\"1x\",\"2\"]", "[1,\"NaN\"]", "[1,null]",
             "[1,{\"a\":1}]", "[{\"x\":1},2]", "[1,[2]]", "[1]", "[[]]", "[[1,2]]"
         })
         void malformedPointPositionsAreRejected(String coordinates) {
@@ -442,17 +451,27 @@ class GeoJsonGeometryReaderTest {
         }
 
         @Test
-        void stringOrdinatesAreNotSilentlyConverted() {
+        void nonNumericOrdinatesAreNotSilentlyConverted() {
             assertThatThrownBy(() -> read(geo("Point", "[\"abc\",\"xyz\"]"), Point.class))
                 .isInstanceOf(GeoJsonParseException.class)
-                .hasMessageContaining("expected a number or an array but got a string");
-            assertThatThrownBy(() -> read(geo("Point", "[1,\"2\"]"), Point.class))
+                .hasMessageContaining("expected a number but got the string \"abc\"");
+            assertThatThrownBy(() -> read(geo("Point", "[1,\"Infinity\"]"), Point.class))
                 .isInstanceOf(GeoJsonParseException.class)
-                .hasMessageContaining("expected a number but got a string");
+                .hasMessageContaining("expected a number but got the string \"Infinity\"");
             assertThatThrownBy(() -> read(geo("Point", "[true,false]"), Point.class))
                 .hasMessageContaining("a boolean");
             assertThatThrownBy(() -> read(geo("Point", "[null,null]"), Point.class))
                 .hasMessageContaining("got null");
+        }
+
+        @Test
+        void numericStringsAreReadAsNumbersLikeOneZero() throws IOException {
+            Point point = read(geo("Point", "[\"116.4\",\" 39.9 \",\"12.5\"]"), Point.class);
+            assertThat(point.getX()).isEqualTo(116.4);
+            assertThat(point.getY()).isEqualTo(39.9);
+            assertThat(point.getCoordinate().getZ()).isEqualTo(12.5);
+            LineString line = read(geo("LineString", "[[\"1\",\"2\"],[3,\"4e1\"]]"), LineString.class);
+            assertThat(line.getCoordinateN(1).getY()).isEqualTo(40.0);
         }
 
         @Test

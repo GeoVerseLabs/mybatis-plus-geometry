@@ -2,6 +2,7 @@ package io.github.geoverselabs.mybatis.geometry.jackson;
 
 import com.fasterxml.jackson.core.JsonGenerationException;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.json.JsonGeneratorImpl;
 import org.locationtech.jts.algorithm.Orientation;
 import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Geometry;
@@ -66,6 +67,8 @@ final class GeoJsonGeometryWriter {
     private final JsonGenerator gen;
     private final int precision;
     private final char[] buffer;
+    /** Textual generators (JSON) take the formatted digits; binary ones (CBOR, Smile) need a double. */
+    private final boolean formattedNumbers;
     private String currentType;
 
     /**
@@ -76,6 +79,10 @@ final class GeoJsonGeometryWriter {
         this.gen = gen;
         this.precision = precision == null ? -1 : precision;
         this.buffer = precision == null ? null : new char[BUFFER_SIZE];
+        // UTF8JsonGenerator reports canWriteFormattedNumbers() == false although it writes the digits
+        // verbatim, so recognise every textual JSON generator by type
+        this.formattedNumbers = precision != null
+            && (gen instanceof JsonGeneratorImpl || gen.canWriteFormattedNumbers());
     }
 
     /**
@@ -237,6 +244,11 @@ final class GeoJsonGeometryWriter {
             gen.writeNumber(value);
             return;
         }
+        if (!formattedNumbers) {
+            // e.g. CBOR writes writeNumber(String) as a text string, which is not a GeoJSON number
+            gen.writeNumber(roundedValue(value, precision));
+            return;
+        }
         int length = formatFixed(value, precision, buffer);
         if (length >= 0) {
             gen.writeNumber(buffer, 0, length);
@@ -291,6 +303,33 @@ final class GeoJsonGeometryWriter {
             pos += digits;
         }
         return pos;
+    }
+
+    /**
+     * The double nearest to {@code value} rounded half-up (away from zero on ties) to
+     * {@code precision} decimals: the value whose shortest representation
+     * {@link #formatFixed(double, int, char[])} writes. Used for binary formats.
+     *
+     * @param value     finite value
+     * @param precision decimals, 0 to {@link GeoJsonOptions#MAX_PRECISION}
+     * @return the rounded value; zero is returned without a sign
+     */
+    static double roundedValue(double value, int precision) {
+        double scaled = Math.abs(value) * POW10_DOUBLE[precision];
+        if (!(scaled < TWO_POW_53)) {
+            return BigDecimal.valueOf(value).setScale(precision, RoundingMode.HALF_UP).doubleValue();
+        }
+        double floor = Math.floor(scaled);
+        long units = (long) floor;
+        if (scaled - floor >= 0.5) {
+            units++;
+        }
+        if (units == 0) {
+            return 0.0;
+        }
+        // units < 2^53 and 10^precision <= 10^15 are exact, so the quotient is correctly rounded
+        double rounded = units / POW10_DOUBLE[precision];
+        return value < 0 ? -rounded : rounded;
     }
 
     /**

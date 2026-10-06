@@ -53,6 +53,8 @@ dependencies {
     // Spring Boot 3 flavour of the MyBatis-Plus starter (the plain boot-starter targets Boot 2 / javax)
     testImplementation 'com.baomidou:mybatis-plus-spring-boot3-starter:3.5.7'
     testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.15.3'
+    testImplementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.15.3'
+    testImplementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.15.3'
 
     // Database integration tests (skipped automatically when Docker is unavailable)
     testImplementation platform('org.testcontainers:testcontainers-bom:1.21.4')

@@ -30,6 +30,7 @@ import org.locationtech.jts.operation.valid.IsValidOp;
 import org.locationtech.jts.operation.valid.TopologyValidationError;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -328,7 +329,7 @@ final class GeoJsonGeometryReader {
         if (first == JsonToken.END_ARRAY) {
             return Node.EMPTY;
         }
-        if (isNumber(first)) {
+        if (isOrdinate(first)) {
             PositionList single = new PositionList(1);
             readPosition(single, first, -1);
             return Node.position(single);
@@ -340,7 +341,7 @@ final class GeoJsonGeometryReader {
         }
 
         JsonToken childFirst = parser.nextToken();
-        if (isNumber(childFirst)) {
+        if (isOrdinate(childFirst)) {
             // An array of positions: read them straight into one primitive list.
             if (depth + 1 > MAX_COORDINATE_DEPTH) {
                 throw new GeoJsonParseException(parser,
@@ -358,7 +359,7 @@ final class GeoJsonGeometryReader {
                             + describe(token), "coordinates");
                 }
                 JsonToken positionFirst = parser.nextToken();
-                if (!isNumber(positionFirst)) {
+                if (!isOrdinate(positionFirst)) {
                     throw positionError(index, positionFirst);
                 }
                 readPosition(list, positionFirst, index);
@@ -386,26 +387,32 @@ final class GeoJsonGeometryReader {
      * @param index the position's index in its list, or -1 for a single position (Point)
      */
     private void readPosition(PositionList target, JsonToken first, int index) throws IOException {
-        double x = parser.getDoubleValue();
+        double x = ordinate(first, index);
         JsonToken token = parser.nextToken();
-        if (!isNumber(token)) {
+        if (!isOrdinate(token)) {
             throw positionError(index, token);
         }
-        double y = parser.getDoubleValue();
+        double y = ordinate(token, index);
         double z = Double.NaN;
         boolean hasZ = false;
         token = parser.nextToken();
         if (token != JsonToken.END_ARRAY) {
-            if (!isNumber(token)) {
-                throw positionError(index, token);
+            if (isNumber(token)) {
+                z = parser.getDoubleValue();
+                hasZ = true;
+            } else if (token == JsonToken.VALUE_STRING && isDecimal(parser.getText().trim())) {
+                z = new BigDecimal(parser.getText().trim()).doubleValue();
+                hasZ = true;
+            } else {
+                // 1.0.x ignored everything after the second element: any other altitude means "no Z"
+                parser.skipChildren();
             }
-            z = parser.getDoubleValue();
-            hasZ = true;
-            // Further elements (for example a measure) are ignored but must still be numbers.
+            // Further elements (for example a measure) are ignored.
             for (token = parser.nextToken(); token != JsonToken.END_ARRAY; token = parser.nextToken()) {
-                if (!isNumber(token)) {
-                    throw positionError(index, token);
+                if (token == null) {
+                    throw new GeoJsonParseException(parser, "Unexpected end of input in a position", "coordinates");
                 }
+                parser.skipChildren();
             }
         }
         validateOrdinates(x, y, z, hasZ);
@@ -413,6 +420,38 @@ final class GeoJsonGeometryReader {
             altitudeSeen = true;
         }
         target.add(x, y, z, hasZ);
+    }
+
+    /**
+     * The value of an ordinate token: a JSON number, or a string holding a decimal number, which
+     * 1.0.x accepted (e.g. {@code ["116.4", "39.9"]}). Other strings are rejected.
+     */
+    private double ordinate(JsonToken token, int index) throws IOException {
+        if (token != JsonToken.VALUE_STRING) {
+            return parser.getDoubleValue();
+        }
+        String text = parser.getText().trim();
+        try {
+            // BigDecimal accepts plain decimal notation only (no NaN, Infinity, hex or 'd'/'f' suffixes)
+            return new BigDecimal(text).doubleValue();
+        } catch (NumberFormatException e) {
+            String where = index >= 0 ? "Invalid coordinate pair at index " + index : "Invalid position";
+            throw new GeoJsonParseException(parser,
+                where + ": expected a number but got the string \"" + abbreviate(text) + "\"", "coordinates");
+        }
+    }
+
+    private static boolean isDecimal(String text) {
+        try {
+            new BigDecimal(text);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static String abbreviate(String text) {
+        return text.length() <= 32 ? text : text.substring(0, 32) + "...";
     }
 
     private void validateOrdinates(double x, double y, double z, boolean hasZ) throws IOException {
@@ -657,6 +696,11 @@ final class GeoJsonGeometryReader {
 
     private static boolean isNumber(JsonToken token) {
         return token == JsonToken.VALUE_NUMBER_INT || token == JsonToken.VALUE_NUMBER_FLOAT;
+    }
+
+    /** A token that may hold an ordinate: a number, or a string checked by {@link #ordinate}. */
+    private static boolean isOrdinate(JsonToken token) {
+        return isNumber(token) || token == JsonToken.VALUE_STRING;
     }
 
     private static String describe(JsonToken token) {
