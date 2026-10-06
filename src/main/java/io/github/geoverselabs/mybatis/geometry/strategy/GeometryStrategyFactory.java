@@ -241,7 +241,9 @@ public final class GeometryStrategyFactory {
             case "postgresql", "postgis", "pgsql":
                 return DatabaseType.POSTGRESQL;
             default:
-                return null;
+                // PostGIS JDBC driver wrappers: postgresql_postGIS, postgresql_lwgis, postgresql_autogis, postgres_jts
+                return segment.startsWith("postgresql_") || segment.startsWith("postgres_")
+                    ? DatabaseType.POSTGRESQL : null;
         }
     }
 }

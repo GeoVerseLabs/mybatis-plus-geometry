@@ -57,8 +57,14 @@ public final class WkbSupport {
     /** Byte order byte plus type word. */
     private static final int HEADER_LENGTH = 5;
 
-    /** Nesting depth up to which {@link #wkbEnd(byte[], int, int)} inspects geometry collections. */
-    private static final int MAX_SCAN_DEPTH = 64;
+    /**
+     * Deepest geometry collection nesting accepted. JTS reads WKB recursively, so deeper values are
+     * rejected before they reach it instead of overflowing the stack.
+     */
+    static final int MAX_NESTING_DEPTH = 1000;
+
+    /** {@link #wkbEnd(byte[], int, int)} result for values nested deeper than {@link #MAX_NESTING_DEPTH}. */
+    static final int TOO_DEEP = -2;
 
     /** Number of bytes shown in error messages. */
     private static final int PREFIX_BYTES = 16;
@@ -181,9 +187,14 @@ public final class WkbSupport {
             }
             srid = getInt(bytes, offset + HEADER_LENGTH, littleEndian);
         }
+        int end = structureChecked ? bytes.length : wkbEnd(bytes, offset, 0);
+        if (end == TOO_DEEP) {
+            throw new IllegalArgumentException("WKB geometry collections nested deeper than " + MAX_NESTING_DEPTH
+                + " levels: " + hexPrefix(bytes));
+        }
         WKBReader reader = new WKBReader(GeometryFactoryProvider.getFactory(srid));
         try {
-            if (structureChecked || wkbEnd(bytes, offset, 0) > 0) {
+            if (end > 0) {
                 // Every count field was checked against the input length by the scan, so the
                 // unbounded stream reader cannot over-allocate. (read(byte[]) caps counts at
                 // length/16, which rejects collections of several empty members.)
@@ -193,6 +204,9 @@ public final class WkbSupport {
             return reader.read(offset == 0 ? bytes : Arrays.copyOfRange(bytes, offset, bytes.length));
         } catch (ParseException | IOException | RuntimeException e) {
             throw new IllegalArgumentException("Invalid WKB (" + e.getMessage() + "): " + hexPrefix(bytes), e);
+        } catch (StackOverflowError e) {
+            // backstop for malformed input the structure scan could not bound
+            throw new IllegalArgumentException("WKB nested too deeply to decode: " + hexPrefix(bytes));
         }
     }
 
@@ -226,11 +240,15 @@ public final class WkbSupport {
     /**
      * Walk the structure of a WKB geometry without building it.
      *
-     * @return the offset just after the geometry starting at {@code offset}, or -1 when the bytes do
-     *     not form a well-formed WKB geometry there
+     * @return the offset just after the geometry starting at {@code offset}, -1 when the bytes do
+     *     not form a well-formed WKB geometry there, or {@link #TOO_DEEP} when collections are nested
+     *     deeper than {@link #MAX_NESTING_DEPTH}
      */
     static int wkbEnd(byte[] b, int offset, int depth) {
-        if (depth > MAX_SCAN_DEPTH || offset < 0 || b.length - offset < HEADER_LENGTH || !isByteOrder(b[offset])) {
+        if (depth > MAX_NESTING_DEPTH) {
+            return TOO_DEEP;
+        }
+        if (offset < 0 || b.length - offset < HEADER_LENGTH || !isByteOrder(b[offset])) {
             return -1;
         }
         boolean le = b[offset] == 1;
@@ -284,7 +302,7 @@ public final class WkbSupport {
                 for (int p = 0; p < parts; p++) {
                     pos = wkbEnd(b, (int) pos, depth + 1);
                     if (pos < 0) {
-                        return -1;
+                        return (int) pos;
                     }
                 }
                 break;

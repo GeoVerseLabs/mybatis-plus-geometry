@@ -278,14 +278,14 @@ class WkbSupportTest {
     }
 
     @Test
-    void deeplyNestedCollectionsUseTheBoundedReader() {
+    void deeplyNestedCollectionsDecode() {
         StringBuilder text = new StringBuilder("POINT (1 2)");
         for (int i = 0; i < 80; i++) {
             text.insert(0, "GEOMETRYCOLLECTION (").append(')');
         }
         Geometry g = wkt(text.toString());
         byte[] encoded = WkbSupport.writeSridPrefixed(g, 3857);
-        assertThat(WkbSupport.wkbEnd(encoded, 4, 0)).isEqualTo(-1);
+        assertThat(WkbSupport.wkbEnd(encoded, 4, 0)).isEqualTo(encoded.length);
         Geometry decoded = WkbSupport.readSridPrefixed(encoded);
         assertThat(decoded.equalsExact(g)).isTrue();
         assertThat(decoded.getSRID()).isEqualTo(3857);

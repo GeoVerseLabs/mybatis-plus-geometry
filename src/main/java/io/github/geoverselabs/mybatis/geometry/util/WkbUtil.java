@@ -320,7 +320,7 @@ public final class WkbUtil {
     }
 
     /**
-     * Parse WKB hex string (SRID prefix + WKB, case-insensitive) to JTS Geometry.
+     * Parse a WKB hex string (SRID prefix + WKB, or EWKB; case-insensitive) to a JTS Geometry.
      *
      * @param wkbHex the WKB hex string
      * @return JTS Geometry, or null if input is null/empty
@@ -331,7 +331,8 @@ public final class WkbUtil {
             return null;
         }
         try {
-            return WkbSupport.readSridPrefixed(WkbSupport.hexToBytes(wkbHex));
+            // also accepts hex EWKB (the PostGIS column text and the 1.1 PostGIS interceptor output)
+            return WkbSupport.readEwkbOrSridPrefixed(WkbSupport.hexToBytes(wkbHex));
         } catch (IllegalArgumentException e) {
             throw new WkbParseException("Failed to parse WKB string: " + e.getMessage(), wkbHex, e);
         }
