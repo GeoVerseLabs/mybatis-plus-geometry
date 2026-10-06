@@ -143,6 +143,10 @@ final class SelectStatement {
         if (listStart >= fromIndex) {
             return null;
         }
+        if (isDistinct(sql, tokens, listStart) && hasTopLevelKeyword(sql, tokens, fromIndex + 1, statementEnd, "ORDER")) {
+            // wrapping a column removes it from a DISTINCT select list, which ORDER BY may still reference
+            return null;
+        }
         List<Item> items = splitItems(tokens, listStart, fromIndex);
 
         int clauseEnd = statementEnd;
@@ -162,6 +166,25 @@ final class SelectStatement {
         }
         TableRef mainTable = parseTableRef(sql, tokens, fromIndex + 1, clauseEnd);
         return new SelectStatement(sql, tokens, items, mainTable, multiTable);
+    }
+
+    private static boolean isDistinct(String sql, List<Token> tokens, int listStart) {
+        for (int i = 1; i < listStart; i++) {
+            if (SqlLexer.isKeyword(sql, tokens.get(i), "DISTINCT") || SqlLexer.isKeyword(sql, tokens.get(i), "DISTINCTROW")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasTopLevelKeyword(String sql, List<Token> tokens, int from, int to, String keyword) {
+        for (int i = from; i < to; i++) {
+            Token token = tokens.get(i);
+            if (token.depth == 0 && SqlLexer.isKeyword(sql, token, keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** {@code a IS [NOT] DISTINCT FROM b}: this FROM is an operator, not the FROM clause. */

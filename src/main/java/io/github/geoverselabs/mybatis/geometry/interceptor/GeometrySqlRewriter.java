@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
@@ -53,13 +54,23 @@ public class GeometrySqlRewriter {
     static final int CACHE_LIMIT = 2048;
 
     /** Longer statements are rewritten on every call instead of being cached. */
-    static final int MAX_CACHED_SQL_LENGTH = 32 * 1024;
+    static final int MAX_CACHED_SQL_LENGTH = 8 * 1024;
+
+    /**
+     * Total characters (original plus rewritten SQL) the cache may hold, about 4-8 MB; the cache is
+     * cleared when it grows beyond. Bounds memory when statement texts vary (IN lists of many sizes).
+     */
+    static final long CACHE_CHAR_BUDGET = 2_000_000L;
+
+    /** PostgreSQL postfix operators that look like an alias written without AS ({@code col ISNULL}). */
+    private static final Set<String> POSTFIX_OPERATORS = Set.of("ISNULL", "NOTNULL");
 
     /** Cache marker for "nothing to rewrite", so callers get their own SQL instance back. */
     private static final String UNCHANGED = new String("<unchanged>");
 
     private final Supplier<GeometryHandlerStrategy> strategySupplier;
     private final Map<CacheKey, String> cache = new ConcurrentHashMap<>();
+    private final AtomicLong cachedChars = new AtomicLong();
     private final AtomicBoolean legacyFailureLogged = new AtomicBoolean();
 
     /**
@@ -151,6 +162,7 @@ public class GeometrySqlRewriter {
      */
     public void clearCache() {
         cache.clear();
+        cachedChars.set(0);
     }
 
     /**
@@ -165,10 +177,17 @@ public class GeometrySqlRewriter {
     }
 
     private void store(CacheKey key, String value) {
-        if (cache.size() >= CACHE_LIMIT) {
-            cache.clear();
+        long chars = key.sql().length() + (value == UNCHANGED ? 0 : value.length());
+        if (cache.size() >= CACHE_LIMIT || cachedChars.get() + chars > CACHE_CHAR_BUDGET) {
+            clearCache();
         }
-        cache.put(key, value);
+        if (cache.put(key, value) == null) {
+            cachedChars.addAndGet(chars);
+        }
+    }
+
+    long cachedChars() {
+        return cachedChars.get();
     }
 
     private static String rewriteUncached(String sql, GeometryColumns columns, boolean requireTableMatch,
@@ -256,7 +275,8 @@ public class GeometrySqlRewriter {
             && (SelectStatement.isIdentifier(tokens.get(i + 1)) || tokens.get(i + 1).kind == Kind.STRING)) {
             alias = tokens.get(i + 1);
         } else if (i + 1 == end && SelectStatement.isIdentifier(tokens.get(i))
-            && !SqlLexer.isKeyword(sql, tokens.get(i), "AS")) {
+            && !SqlLexer.isKeyword(sql, tokens.get(i), "AS")
+            && !SqlLexer.isAnyKeyword(sql, tokens.get(i), POSTFIX_OPERATORS)) {
             alias = tokens.get(i);
         } else {
             return null; // an expression such as "col IS NULL" or "col COLLATE x"

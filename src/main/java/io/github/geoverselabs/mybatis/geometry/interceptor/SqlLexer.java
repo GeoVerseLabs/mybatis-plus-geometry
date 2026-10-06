@@ -227,9 +227,14 @@ final class SqlLexer {
     }
 
     /**
-     * @return the index after the comment, or -1 when it is not terminated
+     * @return the index after the comment, or -1 when it is not terminated or is a MySQL
+     *     executable comment
      */
     private int skipBlockComment(int start) {
+        if (dialect == SqlDialect.MYSQL && start + 2 < length && sql.charAt(start + 2) == '!') {
+            // MySQL executes /*! ... */ as SQL: its content is not visible to the parser, so give up
+            return -1;
+        }
         int level = 1;
         int i = start + 2;
         while (i < length) {

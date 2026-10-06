@@ -134,18 +134,34 @@ public class GeometryFieldInterceptor implements Interceptor {
         if (sql == null || target == null) {
             return;
         }
-        GeometryColumns columns = fieldResolver.resolve(target.entityClass());
-        if (columns.isEmpty()) {
-            return;
+        GeometrySqlRewriter rewriter = sqlRewriter;
+        String rewritten;
+        if (isCustomized(rewriter)) {
+            // subclasses (written for 1.0.x) override the public methods: honour them
+            Set<String> geometryFields = fieldResolver.getGeometryFields(target.entityClass());
+            if (geometryFields == null || geometryFields.isEmpty()) {
+                return;
+            }
+            rewritten = rewriter.rewrite(sql, geometryFields, fieldResolver.getAllFields(target.entityClass()));
+        } else {
+            GeometryColumns columns = fieldResolver.resolve(target.entityClass());
+            if (columns.isEmpty()) {
+                return;
+            }
+            rewritten = rewriter.rewrite(sql, columns, !target.resultType());
         }
-        String rewritten = sqlRewriter.rewrite(sql, columns, !target.resultType());
-        if (!sql.equals(rewritten)) {
+        if (rewritten != null && !sql.equals(rewritten)) {
             if (log.isDebugEnabled()) {
                 log.debug("Geometry columns wrapped for {}:\n  original: {}\n  rewritten: {}",
                     statement.getId(), sql, rewritten);
             }
             PluginUtils.mpBoundSql(boundSql).sql(rewritten);
         }
+    }
+
+    private boolean isCustomized(GeometrySqlRewriter rewriter) {
+        return fieldResolver.getClass() != GeometryFieldResolver.class
+            || rewriter.getClass() != GeometrySqlRewriter.class;
     }
 
     private void reportFailure(MappedStatement statement, Throwable e) {

@@ -424,4 +424,47 @@ class GeometryFieldInterceptorTest {
         assertThat(sqlOf(null, ShopMapper.class, m -> m.selectById(1L)))
             .isEqualTo("SELECT id,name,location FROM shop WHERE id=?");
     }
+
+    // ------------------------------------------------------------------ 1.0.x extension points
+
+    static class LegacyRewriter extends GeometrySqlRewriter {
+        final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+
+        LegacyRewriter() {
+            super(new MySQLGeometryStrategy());
+        }
+
+        @Override
+        public String rewrite(String sql, java.util.Set<String> geometryColumns, java.util.List<String> allColumns) {
+            calls.incrementAndGet();
+            return sql + " /* custom */";
+        }
+    }
+
+    @Test
+    void overriddenPublicRewriterIsUsed() {
+        LegacyRewriter rewriter = new LegacyRewriter();
+        String sql = sqlOf(new GeometryFieldInterceptor(new GeometryFieldResolver(), rewriter), ShopMapper.class,
+            m -> m.selectById(1L));
+        assertThat(sql).isEqualTo("SELECT id,name,location FROM shop WHERE id=? /* custom */");
+        assertThat(rewriter.calls).hasValue(1);
+    }
+
+    static class NullRewriter extends GeometrySqlRewriter {
+        NullRewriter() {
+            super(new MySQLGeometryStrategy());
+        }
+
+        @Override
+        public String rewrite(String sql, java.util.Set<String> geometryColumns, java.util.List<String> allColumns) {
+            return null;
+        }
+    }
+
+    @Test
+    void aNullRewriteKeepsTheOriginalSql() {
+        String sql = sqlOf(new GeometryFieldInterceptor(new GeometryFieldResolver(), new NullRewriter()),
+            ShopMapper.class, m -> m.selectById(1L));
+        assertThat(sql).isEqualTo("SELECT id,name,location FROM shop WHERE id=?");
+    }
 }
