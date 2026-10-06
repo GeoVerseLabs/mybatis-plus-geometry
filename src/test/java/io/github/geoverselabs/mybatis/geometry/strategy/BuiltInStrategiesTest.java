@@ -53,8 +53,8 @@ class BuiltInStrategiesTest {
     void selectWrapping() {
         assertThat(mysql.wrapColumnForSelect("location")).isEqualTo("HEX(location) AS location");
         assertThat(mysql.wrapColumnForSelect("t.location")).isEqualTo("HEX(t.location) AS location");
-        assertThat(postgis.wrapColumnForSelect("geom")).isEqualTo("encode(ST_AsEWKB(geom), 'hex') AS geom");
-        assertThat(postgis.wrapColumnForSelect("t.geom")).isEqualTo("encode(ST_AsEWKB(t.geom), 'hex') AS geom");
+        assertThat(postgis.wrapColumnForSelect("geom")).isEqualTo("encode(ST_AsEWKB(geom::geometry), 'hex') AS geom");
+        assertThat(postgis.wrapColumnForSelect("t.geom")).isEqualTo("encode(ST_AsEWKB(t.geom::geometry), 'hex') AS geom");
     }
 
     // ==================== MySQL ====================

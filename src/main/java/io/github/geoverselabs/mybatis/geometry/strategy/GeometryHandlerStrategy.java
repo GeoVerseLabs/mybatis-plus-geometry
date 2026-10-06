@@ -34,7 +34,7 @@ public interface GeometryHandlerStrategy {
      * <p>Examples:</p>
      * <ul>
      *   <li>MySQL: {@code HEX(column) AS column}</li>
-     *   <li>PostGIS: {@code encode(ST_AsEWKB(column), 'hex') AS column}</li>
+     *   <li>PostGIS: {@code encode(ST_AsEWKB(column::geometry), 'hex') AS column}</li>
      * </ul>
      *
      * @param columnName the column name to wrap

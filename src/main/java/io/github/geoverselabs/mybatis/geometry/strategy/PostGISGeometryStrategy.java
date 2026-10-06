@@ -44,7 +44,7 @@ public class PostGISGeometryStrategy implements GeometryHandlerStrategy {
     }
 
     /**
-     * Wrap a column as {@code encode(ST_AsEWKB(col), 'hex') AS alias}, where the alias is the
+     * Wrap a column as {@code encode(ST_AsEWKB(col::geometry), 'hex') AS alias}, where the alias is the
      * unqualified column name.
      *
      * @param columnName the column name, optionally qualified
@@ -52,7 +52,8 @@ public class PostGISGeometryStrategy implements GeometryHandlerStrategy {
      */
     @Override
     public String wrapColumnForSelect(String columnName) {
-        return "encode(ST_AsEWKB(" + columnName + "), 'hex') AS " + extractSimpleColumnName(columnName);
+        // ::geometry is a no-op for geometry columns and lets geography columns use ST_AsEWKB
+        return "encode(ST_AsEWKB(" + columnName + "::geometry), 'hex') AS " + extractSimpleColumnName(columnName);
     }
 
     /**

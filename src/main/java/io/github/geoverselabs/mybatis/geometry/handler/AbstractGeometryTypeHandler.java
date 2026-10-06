@@ -15,12 +15,15 @@ import org.locationtech.jts.operation.valid.TopologyValidationError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.sql.CallableStatement;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Arrays;
+import java.util.Set;
 
 /**
  * Abstract base class for geometry TypeHandlers.
@@ -55,6 +58,17 @@ import java.sql.Types;
  */
 public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends BaseTypeHandler<T> {
 
+    /** The built-in handlers, whose typed overrides of the 1.0.x hooks only delegate to this class. */
+    private static final Set<String> BUILT_IN_HANDLERS = Set.of(
+        "io.github.geoverselabs.mybatis.geometry.handler.PointTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.LineStringTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.PolygonTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.MultiPointTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.MultiLineStringTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.MultiPolygonTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.GeometryCollectionTypeHandler",
+        "io.github.geoverselabs.mybatis.geometry.handler.GeometryTypeHandler");
+
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
     /**
@@ -81,6 +95,12 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
     private final GeometryHandlerStrategy explicitStrategy;
 
     private final Class<?> geometryClass;
+
+    /** A subclass other than the built-in handlers overrides {@link #ensureSrid(Geometry)} (1.0.x write hook). */
+    private final boolean legacyEnsureSrid;
+
+    /** A subclass other than the built-in handlers overrides {@link #parseGeometry(String)} (1.0.x read hook). */
+    private final boolean legacyParseGeometry;
 
     /**
      * Create a handler that resolves the default SRID and strategy from the global configuration
@@ -118,6 +138,27 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
         this.explicitStrategy = strategy;
         this.strategy = strategy != null ? strategy : GeometryStrategyFactory.getDefaultStrategy();
         this.geometryClass = resolveGeometryClass(getRawType());
+        this.legacyEnsureSrid = overriddenOutsideLibrary(getClass(), "ensureSrid", Geometry.class);
+        this.legacyParseGeometry = overriddenOutsideLibrary(getClass(), "parseGeometry", String.class);
+    }
+
+    /**
+     * Whether a class between {@code type} and this base class, other than the built-in handlers,
+     * declares the given method. Such overrides come from subclasses written for 1.0.x, whose hooks are honoured.
+     */
+    private static boolean overriddenOutsideLibrary(Class<?> type, String name, Class<?> parameterType) {
+        for (Class<?> c = type; c != null && c != AbstractGeometryTypeHandler.class; c = c.getSuperclass()) {
+            if (BUILT_IN_HANDLERS.contains(c.getName())) {
+                continue;
+            }
+            for (Method method : c.getDeclaredMethods()) {
+                if (!method.isSynthetic() && method.getName().equals(name)
+                    && Arrays.equals(method.getParameterTypes(), new Class<?>[] {parameterType})) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static Class<?> resolveGeometryClass(Type rawType) {
@@ -165,6 +206,12 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
         }
 
         int srid = parameter.getSRID() != 0 ? parameter.getSRID() : getDefaultSrid();
+        if (legacyEnsureSrid) {
+            // a 1.0.x subclass chooses the SRID in ensureSrid: apply it to a copy, never the caller's object
+            Geometry copy = parameter.copy();
+            ensureSrid(copy);
+            srid = copy.getSRID() != 0 ? copy.getSRID() : getDefaultSrid();
+        }
         Object dbValue;
         try {
             dbValue = getStrategy().convertForDatabase(parameter, srid);
@@ -191,7 +238,7 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
     public T getNullableResult(ResultSet rs, String columnName) throws SQLException {
         Geometry geometry;
         try {
-            geometry = getStrategy().read(rs, columnName);
+            geometry = legacyParseGeometry ? parseGeometry(rs.getString(columnName)) : getStrategy().read(rs, columnName);
         } catch (RuntimeException e) {
             throw readFailure(columnName, e);
         }
@@ -202,7 +249,7 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
     public T getNullableResult(ResultSet rs, int columnIndex) throws SQLException {
         Geometry geometry;
         try {
-            geometry = getStrategy().read(rs, columnIndex);
+            geometry = legacyParseGeometry ? parseGeometry(rs.getString(columnIndex)) : getStrategy().read(rs, columnIndex);
         } catch (RuntimeException e) {
             throw readFailure(columnIndex, e);
         }
@@ -213,7 +260,7 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
     public T getNullableResult(CallableStatement cs, int columnIndex) throws SQLException {
         Geometry geometry;
         try {
-            geometry = getStrategy().read(cs, columnIndex);
+            geometry = legacyParseGeometry ? parseGeometry(cs.getString(columnIndex)) : getStrategy().read(cs, columnIndex);
         } catch (RuntimeException e) {
             throw readFailure(columnIndex, e);
         }
@@ -244,8 +291,9 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
      * @param hexString the database value
      * @return the parsed geometry, or null if input is null/empty
      * @throws IllegalArgumentException if the value holds another geometry type
-     * @deprecated no longer used by the handler, which reads through
-     *     {@link GeometryHandlerStrategy#read(ResultSet, String)}.
+     * @deprecated the handler reads through {@link GeometryHandlerStrategy#read(ResultSet, String)}.
+     *     It only calls this method, with {@code getString()} of the column as in 1.0.x, when a
+     *     subclass overrides it; implement a custom strategy instead.
      */
     @Deprecated
     @SuppressWarnings("unchecked")
@@ -306,7 +354,8 @@ public abstract class AbstractGeometryTypeHandler<T extends Geometry> extends Ba
      *
      * @param geometry the geometry to check (modified in place)
      * @deprecated modifies the caller's geometry; the handler now passes the effective SRID to
-     *     {@link GeometryHandlerStrategy#convertForDatabase(Geometry, int)} instead.
+     *     {@link GeometryHandlerStrategy#convertForDatabase(Geometry, int)} instead. When a subclass
+     *     overrides this method, the handler calls it on a copy of the geometry and uses the copy's SRID.
      */
     @Deprecated
     protected void ensureSrid(Geometry geometry) {

@@ -83,6 +83,30 @@ class PostgisRoundTripIT extends AbstractGeometryRoundTripIT {
         return true;
     }
 
+    /**
+     * {@code geography} columns: the text output is hex EWKB like {@code geometry}, writes accept hex
+     * EWKB, and the interceptor's {@code ST_AsEWKB(col::geometry)} wrapper has a geography overload
+     * through the cast (PostGIS has no {@code ST_AsEWKB(geography)}).
+     */
+    @ParameterizedTest
+    @EnumSource(ReadMode.class)
+    void geographyColumnRoundTrip(ReadMode mode) throws SQLException {
+        try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
+            st.execute("DROP TABLE IF EXISTS geo_srid");
+            st.execute("CREATE TABLE geo_srid (id BIGSERIAL PRIMARY KEY, name VARCHAR(64), pt geography(Point,4326) NOT NULL)");
+        }
+        try (SqlSession session = factory(mode).openSession(true)) {
+            GeoSridPointMapper mapper = session.getMapper(GeoSridPointMapper.class);
+            GeoSridPoint in = new GeoSridPoint();
+            in.setName("geography");
+            in.setPt(GeometryFixtures.point());
+            assertEquals(1, mapper.insert(in));
+
+            assertGeometry(GeometryFixtures.point(), mapper.selectById(in.getId()).getPt());
+            assertEquals(1, mapper.selectList(null).size());
+        }
+    }
+
     @ParameterizedTest
     @EnumSource(ReadMode.class)
     void readsByteaEwkbExpressions(ReadMode mode) {
