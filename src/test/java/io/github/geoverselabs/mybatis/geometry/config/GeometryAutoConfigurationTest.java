@@ -224,4 +224,89 @@ class GeometryAutoConfigurationTest {
             return GeometryAutoConfigurationTest.dataSource("MySQL", "jdbc:mysql://b/db");
         }
     }
+
+    // ------------------------------------------------------------------ publication order
+
+    @Test
+    void primaryStrategyBecomesTheDefaultWhenThereAreSeveral() {
+        runner.withUserConfiguration(TwoStrategiesConfig.class).run(ctx -> {
+            assertThat(ctx).hasNotFailed();
+            assertThat(GeometryStrategyFactory.getDefaultStrategy()).isSameAs(TwoStrategiesConfig.PRIMARY);
+        });
+    }
+
+    @Test
+    void strategyCreatedDuringPostProcessorRegistrationIsStillPublished() {
+        runner.withPropertyValues("mybatis.geometry.database-type=POSTGRESQL")
+            .withUserConfiguration(EarlyStrategyConsumerConfig.class)
+            .run(ctx -> {
+                assertThat(ctx).hasNotFailed();
+                assertThat(GeometryStrategyFactory.getDefaultStrategy().getSupportedDatabaseType())
+                    .isEqualTo(DatabaseType.POSTGRESQL);
+            });
+    }
+
+    @Test
+    void defaultsArePublishedBeforeUserBeansAreCreated() {
+        runner.withPropertyValues("mybatis.geometry.database-type=MYSQL", "mybatis.geometry.default-srid=4490",
+                "mybatis.geometry.geojson.coordinate-precision=6")
+            .withUserConfiguration(EarlyReaderConfig.class)
+            .run(ctx -> {
+                EarlyReader reader = ctx.getBean(EarlyReader.class);
+                assertThat(reader.srid).isEqualTo(4490);
+                assertThat(reader.precision).isEqualTo(6);
+            });
+    }
+
+    @Test
+    void defaultsArePublishedWithLazyInitialization() {
+        runner.withPropertyValues("mybatis.geometry.database-type=MYSQL", "mybatis.geometry.default-srid=4490",
+                "mybatis.geometry.write-validation=FULL")
+            .withBean(org.springframework.boot.LazyInitializationBeanFactoryPostProcessor.class)
+            .run(ctx -> {
+                assertThat(ctx).hasNotFailed();
+                assertThat(GeometryFactoryProvider.getConfiguredSrid()).isEqualTo(4490);
+                assertThat(GeometryDefaults.getWriteValidation()).isEqualTo(GeometryValidation.FULL);
+            });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class TwoStrategiesConfig {
+        static final GeometryHandlerStrategy PRIMARY = new PostGISGeometryStrategy();
+
+        @Bean
+        @org.springframework.context.annotation.Primary
+        GeometryHandlerStrategy primaryStrategy() {
+            return PRIMARY;
+        }
+
+        @Bean
+        GeometryHandlerStrategy reportingStrategy() {
+            return new io.github.geoverselabs.mybatis.geometry.strategy.MySQLGeometryStrategy();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class EarlyStrategyConsumerConfig {
+        /** Like Shiro's filter factory: a post-processor whose dependencies reach the strategy bean. */
+        @Bean
+        static org.springframework.beans.factory.config.BeanPostProcessor earlyConsumer(
+                GeometryHandlerStrategy strategy) {
+            return new org.springframework.beans.factory.config.BeanPostProcessor() {
+            };
+        }
+    }
+
+    static class EarlyReader {
+        final int srid = GeometryFactoryProvider.getFactory().getSRID();
+        final Integer precision = GeoJsonOptions.getGlobal().coordinatePrecision();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class EarlyReaderConfig {
+        @Bean
+        EarlyReader earlyReader() {
+            return new EarlyReader();
+        }
+    }
 }

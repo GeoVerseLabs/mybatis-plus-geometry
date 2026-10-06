@@ -21,14 +21,18 @@ import org.locationtech.jts.geom.Geometry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 
 import javax.sql.DataSource;
 
@@ -93,8 +97,32 @@ public class GeometryAutoConfiguration {
     }
 
     /**
+     * Publish the {@code mybatis.geometry.*} defaults before any singleton is created, so beans
+     * instantiated before this configuration (and applications with lazy initialization) already see
+     * them. The constructor publishes them again from the bound properties.
+     *
+     * @param environment the application environment
+     * @return the post-processor
+     */
+    @Bean
+    static BeanFactoryPostProcessor geometryDefaultsPublisher(Environment environment) {
+        return beanFactory -> {
+            try {
+                GeometryProperties early = Binder.get(environment)
+                    .bind("mybatis.geometry", GeometryProperties.class)
+                    .orElseGet(GeometryProperties::new);
+                applyDefaults(early);
+            } catch (RuntimeException e) {
+                // invalid values fail the regular @ConfigurationProperties binding with a clear message
+                log.debug("Could not bind mybatis.geometry.* early; defaults are published later", e);
+            }
+        };
+    }
+
+    /**
      * Make every {@link GeometryHandlerStrategy} bean the process-wide default as soon as it is
      * initialized, including user-defined ones, so reflectively created TypeHandlers use it.
+     * {@link #geometryDefaultStrategyPublisher} settles the final choice once all singletons exist.
      *
      * @return the post-processor
      */
@@ -123,6 +151,14 @@ public class GeometryAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public GeometryHandlerStrategy geometryHandlerStrategy(ObjectProvider<DataSource> dataSources) {
+        GeometryHandlerStrategy strategy = createStrategy(dataSources);
+        // also published here: a strategy created while BeanPostProcessors are being registered
+        // (for example as a dependency of another post-processor) bypasses the registrar
+        GeometryStrategyFactory.setDefaultStrategy(strategy);
+        return strategy;
+    }
+
+    private GeometryHandlerStrategy createStrategy(ObjectProvider<DataSource> dataSources) {
         if (properties.getDatabaseType() != null) {
             log.info("Using configured geometry database type: {}", properties.getDatabaseType());
             return GeometryStrategyFactory.getStrategy(properties.getDatabaseType());
@@ -136,6 +172,27 @@ public class GeometryAutoConfiguration {
         GeometryHandlerStrategy strategy = GeometryStrategyFactory.detectStrategy(dataSource);
         log.info("Detected geometry database type: {}", strategy.getSupportedDatabaseType());
         return strategy;
+    }
+
+    /**
+     * Once all singletons exist, make the unique (or {@code @Primary}) strategy bean the process-wide
+     * default, so the last strategy initialized does not win when there are several.
+     *
+     * @param strategies the strategy beans
+     * @return the callback
+     */
+    @Bean
+    static SmartInitializingSingleton geometryDefaultStrategyPublisher(ObjectProvider<GeometryHandlerStrategy> strategies) {
+        return () -> {
+            GeometryHandlerStrategy strategy = strategies.getIfUnique();
+            if (strategy != null) {
+                GeometryStrategyFactory.setDefaultStrategy(strategy);
+            } else if (strategies.stream().count() > 1) {
+                log.warn("Several GeometryHandlerStrategy beans and none is @Primary; TypeHandlers created by "
+                    + "MyBatis-Plus through @TableField(typeHandler = ...) use {}. Mark one strategy @Primary.",
+                    GeometryStrategyFactory.getDefaultStrategy().getSupportedDatabaseType());
+            }
+        };
     }
 
     /**
