@@ -151,7 +151,7 @@ With `PACKED`, `getCoordinates()` returns copies, so mutating them does not chan
 Controls whether the legacy `GeometryFieldInterceptor` is registered as a MyBatis plugin. It is **not needed any more**: TypeHandlers read geometry columns natively (see [Database Strategy Details](#database-strategy-details)), including in hand-written SQL, joins and XML mappers. Enabling it only makes the database convert geometries to hex text, doubling the bytes transferred for MySQL.
 
 - **false** (default): No SQL rewriting.
-- **true**: SELECT statements generated for entities with geometry fields wrap geometry columns (`HEX(col)` for MySQL, `encode(ST_AsEWKB(col), 'hex')` for PostGIS). See [SQL Interceptor](#sql-interceptor-legacy-optional).
+- **true**: SELECT statements generated for entities with geometry fields wrap geometry columns (`HEX(col)` for MySQL, `encode(ST_AsEWKB(col::geometry), 'hex')` for PostGIS). See [SQL Interceptor](#sql-interceptor-legacy-optional).
 
 #### `database-type`
 
@@ -202,12 +202,12 @@ MyBatis-Plus instantiates the TypeHandlers referenced from `@TableField(typeHand
 
 | Setting | Holder |
 |---------|--------|
-| Database strategy (any `GeometryHandlerStrategy` bean, including your own) | `GeometryStrategyFactory.setDefaultStrategy` |
+| Database strategy (the `GeometryHandlerStrategy` bean, including your own; with several, the `@Primary` one) | `GeometryStrategyFactory.setDefaultStrategy` |
 | `default-srid`, `coordinate-sequence` | `GeometryFactoryProvider` |
 | `write-validation`, `preserve-z` | `GeometryDefaults` |
 | `geojson.*` | `GeoJsonOptions.setGlobal` |
 
-Without Spring Boot, call these setters yourself. If several application contexts with different settings share one class loader, the last one started wins.
+The values are published before any singleton is created (also with lazy initialization), so your own beans see them. Without Spring Boot, call these setters yourself. If several application contexts with different settings share one class loader, the last one started wins.
 
 ### Spring Boot Compatibility
 
@@ -236,8 +236,8 @@ Both files are included — the library works with Spring Boot 2.7+ and 3.x with
 | Aspect | Behavior |
 |--------|----------|
 | **Write format** | Hex EWKB `String` with the SRID embedded (`setObject(value, Types.OTHER)`); 3D when `preserve-z` applies |
-| **Read** | `ResultSet.getString()` on the raw column (PostgreSQL returns hex EWKB) |
-| **Also accepts** | `encode(ST_AsEWKB(col), 'hex')`, `ST_AsEWKB(col)` / `ST_AsBinary(col)` (bytea), plain WKB hex, and the 1.0.x "SRID prefix + WKB" hex format |
+| **Read** | `ResultSet.getBytes()` on the raw column: the ASCII bytes of hex EWKB for `geometry`/`geography` columns, the raw bytes for bytea expressions (correct in text and binary transfer mode); `getObject()` for `CallableStatement` OUT parameters |
+| **Also accepts** | `encode(ST_AsEWKB(col::geometry), 'hex')`, `ST_AsEWKB(col)` / `ST_AsBinary(col)` (bytea), plain WKB hex, and the 1.0.x "SRID prefix + WKB" hex format |
 | **Compatible DBs** | PostgreSQL 12+ with PostGIS 3.0+ |
 
 Values read through `ST_AsBinary` carry no SRID, so the geometry gets SRID 0; select the column itself or use `ST_AsEWKB` to keep it.
@@ -256,7 +256,7 @@ The `GeometryJacksonModule` (registered automatically when Jackson is present) r
 
 **Input**
 - One streaming pass over the JSON tokens; `type` may appear before or after `coordinates`; unknown members (`bbox`, `crs`, …) are ignored.
-- Positions must contain numbers: strings, `null` or booleans are rejected (1.0.x silently read them as 0). A third number is kept as Z; further numbers are ignored.
+- Positions must contain numbers. Numeric strings such as `"116.4"` are accepted as in 1.0.x; other strings, `null` and booleans are rejected (1.0.x silently read them as 0). A third numeric element is kept as Z; anything after the second element that is not a number, and every element after the third, is ignored as in 1.0.x.
 - NaN and infinite coordinates are always rejected; WGS84 ranges are checked when `coordinate-range-validation` applies.
 - Polygon rings must be closed and have at least 4 positions; rings of Polygons and MultiPolygons are normalised to RFC 7946 orientation (exterior counter-clockwise, holes clockwise).
 - `validation: FULL` additionally requires OGC validity for Polygon, MultiPolygon and polygonal GeometryCollection members.
@@ -314,7 +314,7 @@ SELECT id, name, location, boundary FROM warehouse WHERE id = ?
 SELECT id, name, HEX(location) AS location, HEX(boundary) AS boundary FROM warehouse WHERE id = ?
 
 -- After interceptor (PostGIS)
-SELECT id, name, encode(ST_AsEWKB(location), 'hex') AS location, ... FROM warehouse WHERE id = ?
+SELECT id, name, encode(ST_AsEWKB(location::geometry), 'hex') AS location, ... FROM warehouse WHERE id = ?
 ```
 
 ### What Is NOT Rewritten
@@ -373,20 +373,28 @@ private Point location;
 
 Do not combine `@TableField("geo_location")` with `@PointTableField` on the same field: MyBatis-Plus uses the first `@TableField` it finds, so one of the two settings is lost (with the direct annotation first, no TypeHandler is bound).
 
-### Custom Geometry Type
+### Custom Validation
 
-A TypeHandler for another geometry type only needs its type and constructors:
+Subclass a TypeHandler to add rules; reading, type checking and SRID handling are inherited:
 
 ```java
-@MappedTypes(LinearRing.class)
-public class LinearRingTypeHandler extends AbstractGeometryTypeHandler<LinearRing> {
-    public LinearRingTypeHandler() {
-        super();
+public class StrictPolygonTypeHandler extends PolygonTypeHandler {
+    @Override
+    protected void validateGeometry(Polygon polygon) throws SQLException {
+        super.validateGeometry(polygon);          // write-validation level
+        if (!polygon.isValid()) {
+            throw new SQLException("Polygon is not OGC-valid");
+        }
     }
 }
 ```
 
-Reading, type checking, SRID handling and validation are inherited. Override `validateGeometry` for additional checks.
+```java
+@TableField(typeHandler = StrictPolygonTypeHandler.class)
+private Polygon boundary;
+```
+
+Subclasses written for 1.0.x keep working: overrides of `ensureSrid(Geometry)` are applied to a copy of the geometry before writing, and overrides of `parseGeometry(String)` receive the column read with `getString()`, as before. New code should implement a `GeometryHandlerStrategy` for custom formats.
 
 ### Hand-Written Queries
 

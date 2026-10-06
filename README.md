@@ -381,7 +381,7 @@ Database GEOMETRY column
 
 ```
 Database GEOMETRY column (selected as-is, no SQL rewriting)
-    ↓ MySQL/MariaDB: getBytes() → SRID + WKB   |   PostGIS: getString() → hex EWKB
+    ↓ MySQL/MariaDB: getBytes() → SRID + WKB   |   PostGIS: getBytes() → hex EWKB
     ↓ (TypeHandler.getNullableResult → strategy.read)
 Java geometry object (SRID kept on every component)
 ```

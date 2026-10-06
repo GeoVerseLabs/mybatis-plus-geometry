@@ -151,7 +151,7 @@ JTS 几何可以携带 Z（高程）坐标。设置 `preserve-z: true` 后，至
 控制是否将旧版 `GeometryFieldInterceptor` 注册为 MyBatis 插件。**现在已不需要它**：TypeHandler 能直接读取几何列（见[数据库策略详情](#数据库策略详情)），手写 SQL、关联查询和 XML 映射同样适用。开启它只会让数据库把几何转成十六进制文本，MySQL 下传输字节数翻倍。
 
 - **false**（默认）：不改写 SQL。
-- **true**：为含几何字段的实体生成的 SELECT 语句会包装几何列（MySQL 为 `HEX(col)`，PostGIS 为 `encode(ST_AsEWKB(col), 'hex')`）。参见 [SQL 拦截器](#sql-拦截器旧版可选)。
+- **true**：为含几何字段的实体生成的 SELECT 语句会包装几何列（MySQL 为 `HEX(col)`，PostGIS 为 `encode(ST_AsEWKB(col::geometry), 'hex')`）。参见 [SQL 拦截器](#sql-拦截器旧版可选)。
 
 #### `database-type`
 
@@ -202,12 +202,12 @@ MyBatis-Plus 通过反射实例化 `@TableField(typeHandler = …)` 引用的 Ty
 
 | 配置 | 存放位置 |
 |------|----------|
-| 数据库策略（任意 `GeometryHandlerStrategy` Bean，包括自定义的） | `GeometryStrategyFactory.setDefaultStrategy` |
+| 数据库策略（`GeometryHandlerStrategy` Bean，包括自定义的；有多个时取 `@Primary` 的那个） | `GeometryStrategyFactory.setDefaultStrategy` |
 | `default-srid`、`coordinate-sequence` | `GeometryFactoryProvider` |
 | `write-validation`、`preserve-z` | `GeometryDefaults` |
 | `geojson.*` | `GeoJsonOptions.setGlobal` |
 
-不使用 Spring Boot 时，请自行调用这些 setter。若多个配置不同的应用上下文共享同一个类加载器，以最后启动的为准。
+这些值在任何单例 Bean 创建之前发布（懒加载模式下同样如此），你自己的 Bean 能读到配置值。不使用 Spring Boot 时，请自行调用这些 setter。若多个配置不同的应用上下文共享同一个类加载器，以最后启动的为准。
 
 ### Spring Boot 兼容性
 
@@ -236,8 +236,8 @@ MyBatis-Plus 通过反射实例化 `@TableField(typeHandler = …)` 引用的 Ty
 | 方面 | 行为 |
 |------|------|
 | **写入格式** | 内嵌 SRID 的十六进制 EWKB `String`（`setObject(value, Types.OTHER)`）；满足 `preserve-z` 条件时为三维 |
-| **读取** | 对原始列调用 `ResultSet.getString()`（PostgreSQL 返回十六进制 EWKB） |
-| **同样可解析** | `encode(ST_AsEWKB(col), 'hex')`、`ST_AsEWKB(col)` / `ST_AsBinary(col)`（bytea）、普通 WKB 十六进制，以及 1.0.x 的"SRID 前缀 + WKB"十六进制格式 |
+| **读取** | 对原始列调用 `ResultSet.getBytes()`：`geometry`/`geography` 列得到十六进制 EWKB 的 ASCII 字节，bytea 表达式得到原始字节（文本与二进制传输模式下均正确）；`CallableStatement` 的 OUT 参数使用 `getObject()` |
+| **同样可解析** | `encode(ST_AsEWKB(col::geometry), 'hex')`、`ST_AsEWKB(col)` / `ST_AsBinary(col)`（bytea）、普通 WKB 十六进制，以及 1.0.x 的"SRID 前缀 + WKB"十六进制格式 |
 | **兼容数据库** | PostgreSQL 12+ 及 PostGIS 3.0+ |
 
 通过 `ST_AsBinary` 读取的值不带 SRID，几何的 SRID 为 0；请直接查询列本身或使用 `ST_AsEWKB` 以保留 SRID。
@@ -256,7 +256,7 @@ MyBatis-Plus 通过反射实例化 `@TableField(typeHandler = …)` 引用的 Ty
 
 **输入**
 - 对 JSON token 单次流式遍历；`type` 可以出现在 `coordinates` 之前或之后；未知成员（`bbox`、`crs` 等）会被忽略。
-- 坐标位置必须是数字：字符串、`null`、布尔值会被拒绝（1.0.x 会悄悄当作 0）。第三个数字作为 Z 保留，更多的数字被忽略。
+- 坐标位置必须是数字。`"116.4"` 这类数字字符串与 1.0.x 一样可以接受；其他字符串、`null`、布尔值会被拒绝（1.0.x 会悄悄当作 0）。第三个元素为数字时作为 Z 保留；与 1.0.x 一样，第二个元素之后的非数字值以及第三个之后的所有元素都会被忽略。
 - NaN 和无穷值始终被拒绝；满足 `coordinate-range-validation` 条件时校验 WGS84 范围。
 - 多边形的环必须闭合且至少有 4 个位置；Polygon 和 MultiPolygon 的环会被规范为 RFC 7946 方向（外环逆时针，内环顺时针）。
 - `validation: FULL` 还要求 Polygon、MultiPolygon 以及 GeometryCollection 中的面状成员满足 OGC 有效性。
@@ -314,7 +314,7 @@ SELECT id, name, location, boundary FROM warehouse WHERE id = ?
 SELECT id, name, HEX(location) AS location, HEX(boundary) AS boundary FROM warehouse WHERE id = ?
 
 -- 拦截器改写后（PostGIS）
-SELECT id, name, encode(ST_AsEWKB(location), 'hex') AS location, ... FROM warehouse WHERE id = ?
+SELECT id, name, encode(ST_AsEWKB(location::geometry), 'hex') AS location, ... FROM warehouse WHERE id = ?
 ```
 
 ### 不会改写的情况
@@ -373,20 +373,28 @@ private Point location;
 
 不要在同一字段上同时使用 `@TableField("geo_location")` 和 `@PointTableField`：MyBatis-Plus 只采用找到的第一个 `@TableField`，其中一项设置会丢失（直接注解在前时不会绑定任何 TypeHandler）。
 
-### 自定义几何类型
+### 自定义校验
 
-为其他几何类型编写 TypeHandler 只需声明类型和构造函数：
+继承 TypeHandler 即可增加校验规则，读取、类型检查和 SRID 处理由父类提供：
 
 ```java
-@MappedTypes(LinearRing.class)
-public class LinearRingTypeHandler extends AbstractGeometryTypeHandler<LinearRing> {
-    public LinearRingTypeHandler() {
-        super();
+public class StrictPolygonTypeHandler extends PolygonTypeHandler {
+    @Override
+    protected void validateGeometry(Polygon polygon) throws SQLException {
+        super.validateGeometry(polygon);          // write-validation 级别的校验
+        if (!polygon.isValid()) {
+            throw new SQLException("Polygon is not OGC-valid");
+        }
     }
 }
 ```
 
-读取、类型检查、SRID 处理和校验都由基类提供。如需额外检查，覆盖 `validateGeometry` 即可。
+```java
+@TableField(typeHandler = StrictPolygonTypeHandler.class)
+private Polygon boundary;
+```
+
+为 1.0.x 编写的子类依然可用：覆盖的 `ensureSrid(Geometry)` 会作用于几何的副本后再写入，覆盖的 `parseGeometry(String)` 仍会收到通过 `getString()` 读取的列值。新代码如需自定义格式，请实现 `GeometryHandlerStrategy`。
 
 ### 手写查询
 

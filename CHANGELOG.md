@@ -21,13 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Empty geometries could not be encoded by `WkbUtil` or serialized to GeoJSON (`POINT EMPTY` threw)
 - Database detection matched `mysql`/`postgres` anywhere in the JDBC URL, including host and database names; it now uses the product name and URL scheme
 - The application failed to start without Jackson on the classpath, and with more than one `DataSource` bean
-- GeoJSON: numeric strings, `null` and booleans in positions were silently read as 0/1; NaN passed the WGS84 range check
+- GeoJSON: non-numeric strings, `null` and booleans in positions were silently read as 0 (or 1 for `true`); NaN passed the WGS84 range check. Numeric strings such as `"116.4"` are still accepted
 - GeoJSON: `MultiPolygon` input skipped ring orientation normalisation and validation; nested `GeometryCollection` and a `GeometryCollection` field holding a `Multi*` geometry could not be read back
 - GeoJSON: serializers recursed infinitely when used through `@JsonSerialize` without the module, and failed with Jackson default typing (e.g. Redis cache serializers)
 - GeoJSON errors are now `JsonMappingException`s with JSON location and path (HTTP 400 in Spring MVC)
 - `WkbUtil` kept a `ThreadLocal` WKB reader per thread (classloader leak on redeploy)
+- Deeply nested WKB values (thousands of nested collections) overflowed the stack; they are now rejected with an exception
+- GeoJSON with a coordinate precision written through CBOR produced coordinates as text strings
+- Database detection did not recognise the PostGIS JDBC wrapper URLs (`jdbc:postgresql_postGIS:`, `jdbc:postgres_jts:`, …)
 - PostGIS reads of bytea expressions broke once pgjdbc switched a statement to binary transfer (after `prepareThreshold` executions); columns are now read with `getBytes()`
-- SELECT interceptor (when enabled): `SELECT *` subqueries inside `exists`/`inSql`/`apply` received the outer entity's columns; `SELECT * FROM t WHERE …` treated `WHERE` as a table alias; mappers extending a custom base mapper, quoted identifiers, `DISTINCT`, hints, aliases without `AS`, columns with `$` and string literals containing commas or `from` were mishandled; same-named columns of joined tables were wrapped; XML-registered interceptors used the MySQL strategy on PostgreSQL. It now uses a SQL scanner that rewrites only the top-level select list and takes column names from MyBatis-Plus table metadata
+- SELECT interceptor (when enabled): `SELECT *` subqueries inside `exists`/`inSql`/`apply` received the outer entity's columns; `SELECT * FROM t WHERE …` treated `WHERE` as a table alias; mappers extending a custom base mapper, quoted identifiers, `DISTINCT`, hints, aliases without `AS`, columns with `$` and string literals containing commas or `from` were mishandled; same-named columns of joined tables were wrapped; XML-registered interceptors used the MySQL strategy on PostgreSQL; `SELECT DISTINCT … ORDER BY`, PostgreSQL `ISNULL`/`NOTNULL` and MySQL `/*! */` comments could be rewritten into invalid or different SQL. It now uses a SQL scanner that rewrites only the top-level select list and takes column names from MyBatis-Plus table metadata
 
 ### Added
 
@@ -45,12 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `interceptor-enabled` now defaults to `false`; the interceptor is only kept for compatibility. Its PostGIS wrapper is now `encode(ST_AsEWKB(col), 'hex')`
+- `interceptor-enabled` now defaults to `false`; the interceptor is only kept for compatibility. Its PostGIS wrapper is now `encode(ST_AsEWKB(col::geometry), 'hex')` (hex EWKB, also for `geography` columns), which `WkbUtil.fromWkb` decodes. Statements that do not return the entity (`selectMaps`, `selectObjs`, DTOs) are only rewritten when they read the entity's own table, so with dynamic table names their geometry values are returned unwrapped
 - `write-validation` defaults to `BASIC` (finite coordinates) instead of a full OGC validation on every write; set `FULL` to restore the old behaviour
 - GeoJSON output: rings are re-oriented to the RFC 7946 right-hand rule, empty geometries are written as `[]`, and Z is written when present
 - GeoJSON input: 2D positions produce two-dimensional coordinate sequences (as the WKB reader does) instead of 3D coordinates with NaN Z
 - Reading a column whose geometry type does not match the field type now fails with a clear error instead of a `ClassCastException` later
 - Documented requirement: MyBatis-Plus 3.5.6+ (meta-annotated `@TableField`)
+- TypeHandlers read through `GeometryHandlerStrategy.read(...)`. Subclasses written for 1.0.x keep linking and working: an overridden `ensureSrid` is applied to a copy of the geometry, an overridden `parseGeometry` still receives `getString()` of the column
+- `GeometryAutoConfiguration` has a new constructor and new bean-method signatures (the Jackson module moved to a nested configuration); it is not meant to be subclassed or called directly
+- `WkbUtil.fromWkb` also accepts hex EWKB
 
 ### Deprecated
 

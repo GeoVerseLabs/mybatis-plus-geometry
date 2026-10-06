@@ -381,7 +381,7 @@ MySQL/MariaDB：SRID + WKB 字节（setBytes）   |   PostGIS：十六进制 EWK
 
 ```
 数据库 GEOMETRY 列（原样查询，不改写 SQL）
-    ↓ MySQL/MariaDB：getBytes() → SRID + WKB   |   PostGIS：getString() → 十六进制 EWKB
+    ↓ MySQL/MariaDB：getBytes() → SRID + WKB   |   PostGIS：getBytes() → 十六进制 EWKB
     ↓ (TypeHandler.getNullableResult → strategy.read)
 Java 几何对象（每个子几何都保留 SRID）
 ```
