@@ -163,11 +163,12 @@ public class StoreController {
 mybatis:
   geometry:
     default-srid: 4326
-    interceptor-enabled: true
     database-type: MYSQL  # 或 POSTGRESQL（不指定则自动检测）
+    geojson:
+      coordinate-precision: 6  # 减小 GeoJSON 体积；不设置则输出完整 double 精度
 ```
 
-> 当 SRID 为 4326 时自动启用坐标范围校验，其他 SRID 值自动禁用。
+> 当 SRID 为 4326 时自动启用坐标范围校验，其他 SRID 值自动禁用。无需 SQL 拦截器：几何列会被直接读取。全部配置项见[配置参考](../docs/CONFIGURATION_zh.md)。
 
 ## 完成！
 

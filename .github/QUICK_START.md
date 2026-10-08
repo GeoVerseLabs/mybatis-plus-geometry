@@ -161,11 +161,12 @@ public class StoreController {
 mybatis:
   geometry:
     default-srid: 4326
-    interceptor-enabled: true
     database-type: MYSQL  # or POSTGRESQL (auto-detected if omitted)
+    geojson:
+      coordinate-precision: 6  # smaller GeoJSON; omit for full double precision
 ```
 
-> Coordinate range validation is automatically enabled when SRID is 4326, and disabled for other SRIDs.
+> Coordinate range validation is automatically enabled when SRID is 4326, and disabled for other SRIDs. No SQL interceptor is needed: geometry columns are read directly. See the [Configuration Reference](../docs/CONFIGURATION.md) for all options.
 
 ## That's It!
 

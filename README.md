@@ -13,15 +13,16 @@ A Spring Boot starter that provides seamless integration between MyBatis Plus an
 - 🚀 **Zero Configuration** - Auto-configuration for Spring Boot 2.7+ and 3.x
 - 🗄️ **Multi-Database Support** - MySQL and PostgreSQL/PostGIS with auto-detection
 - 📍 **Geometry Types** - Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, and generic Geometry support
-- 🔄 **GeoJSON Serialization** - Jackson serializers/deserializers for REST APIs
-- ⚡ **SQL Interceptor** - Automatic HEX() wrapping for SELECT queries
+- 🔄 **GeoJSON Serialization** - Streaming Jackson serializers/deserializers for REST APIs (RFC 7946)
+- ⚡ **Native Column Reads** - Geometry columns are read directly, no SQL rewriting; MySQL/MariaDB transfer raw binary WKB
+- 📦 **Transfer Efficiency** - Configurable GeoJSON coordinate precision, streaming FeatureCollection / GeoJSON Text Sequence output, optional packed coordinate storage
 - 🎯 **Type-Safe Annotations** - `@PointTableField`, `@LineStringTableField`, `@PolygonTableField`, `@MultiPointTableField`, `@MultiLineStringTableField`, `@MultiPolygonTableField`, `@GeometryCollectionTableField`, `@GeometryTableField`
 
 ## Requirements
 
 - Java 17+
 - Spring Boot 2.7+ or 3.x
-- MyBatis Plus 3.5+
+- MyBatis Plus 3.5.6+ (the geometry annotations rely on meta-annotated `@TableField`, supported since 3.5.6). On Spring Boot 3 use `mybatis-plus-spring-boot3-starter`; on Spring Boot 2.7 use `mybatis-plus-boot-starter`.
 - MySQL 8.0+ or PostgreSQL 12+ with PostGIS
 
 ## Installation
@@ -219,18 +220,104 @@ Configure in `application.yml`:
 ```yaml
 mybatis:
   geometry:
-    # Default SRID (default: 4326 for WGS84)
+    # Default SRID for geometries without one (default: 4326 for WGS84)
     default-srid: 4326
-    
-    # Enable SQL interceptor for automatic HEX() wrapping (default: true)
-    interceptor-enabled: true
-    
-    # Database type (auto-detected if not specified)
+
+    # Database type (auto-detected from the DataSource if not specified)
     # Supported values: MYSQL, POSTGRESQL
     database-type: MYSQL
+
+    # Validation before database writes: FULL (OGC isValid), BASIC (finite coordinates), NONE
+    write-validation: BASIC
+
+    # Write Z values to PostGIS (MySQL/MariaDB are 2D only)
+    preserve-z: false
+
+    # Coordinate storage of geometries created by the library: ARRAY or PACKED (double[], less heap)
+    coordinate-sequence: ARRAY
+
+    # Legacy SELECT rewriting (HEX()/encode(ST_AsEWKB())); not needed any more (default: false)
+    interceptor-enabled: false
+
+    geojson:
+      # Decimal places written per ordinate; unset = full double precision. RFC 7946 recommends 6
+      coordinate-precision: 6
+      # Validation of GeoJSON input: FULL (also OGC isValid for polygons) or BASIC
+      validation: FULL
+      # WGS84 range checks on input; unset = enabled only when default-srid is 4326
+      coordinate-range-validation: true
 ```
 
-> **Note:** When `default-srid` is set to 4326 (WGS84), GeoJSON deserializers automatically validate coordinate ranges (longitude -180~180, latitude -90~90). For other SRID values (e.g., 3857), range validation is automatically disabled and only checks that coordinates are finite.
+> **Note:** When `default-srid` is 4326 (WGS84), GeoJSON deserializers validate coordinate ranges (longitude -180~180, latitude -90~90) unless `geojson.coordinate-range-validation` says otherwise. NaN and infinite coordinates are always rejected.
+
+See the [Configuration Reference](docs/CONFIGURATION.md) for every property.
+
+## Transfer Efficiency
+
+Measured on a 5,000-point polygon (JDK 21, single thread), compared with 1.0.1:
+
+| Optimization | How to enable | Effect |
+|---|---|---|
+| Native binary column reads | default (no SQL interceptor) | MySQL/MariaDB send raw WKB instead of HEX() text: half the bytes, decoding 2x faster (437 → 208 µs) |
+| Streaming GeoJSON parser | default | 42% less CPU and 67% less allocation per request body; 86% less CPU with `geojson.validation: BASIC` |
+| GeoJSON coordinate precision | `mybatis.geometry.geojson.coordinate-precision: 6` | 42% smaller JSON (57% smaller after gzip), 45% less CPU and 85% less allocation when writing |
+| Read-only endpoint (DB → GeoJSON) | native reads + precision 6 | 44% less CPU, 76% less allocation |
+| HTTP compression | `server.compression.*` (below) | GeoJSON shrinks 60–75% |
+| Packed coordinates | `mybatis.geometry.coordinate-sequence: PACKED` | 2.7x less heap per decoded geometry (215 → 79 KB) |
+| Streaming large results | `GeoJsonStreams` + MyBatis `Cursor` | constant memory instead of one object per row |
+
+### HTTP compression
+
+GeoJSON compresses well because coordinates repeat their leading digits. Enable compression for the GeoJSON media types in Spring Boot:
+
+```yaml
+server:
+  compression:
+    enabled: true
+    mime-types: application/json,application/geo+json,application/geo+json-seq
+    min-response-size: 2KB
+```
+
+### Per-field precision
+
+```java
+public class WarehouseDTO {
+    @GeoJsonPrecision(7)                     // about 1 cm
+    private Point location;
+
+    @GeoJsonPrecision(GeoJsonPrecision.FULL) // ignore the global setting
+    private Polygon boundary;
+}
+```
+
+### Streaming large result sets
+
+`GeoJsonStreams` writes items one by one, so a MyBatis `Cursor` never has to be loaded into memory. Keep the cursor's session open while writing (for example inside a `@Transactional` method):
+
+```java
+public interface WarehouseMapper extends BaseMapper<Warehouse> {
+    @Select("SELECT * FROM warehouse")
+    @Options(fetchSize = Integer.MIN_VALUE)          // MySQL: stream rows instead of buffering
+    @ResultMap("mybatis-plus_Warehouse")             // reuse the autoResultMap (geometry TypeHandlers)
+    Cursor<Warehouse> streamAll();
+}
+```
+
+```java
+@GetMapping(value = "/warehouses", produces = GeoJsonMediaTypes.GEO_JSON)
+@Transactional(readOnly = true)
+public void export(HttpServletResponse response) throws IOException {
+    response.setContentType(GeoJsonMediaTypes.GEO_JSON);
+    try (Cursor<Warehouse> cursor = warehouseMapper.streamAll()) {
+        GeoJsonStreams.writeFeatureCollection(objectMapper, cursor,
+            Warehouse::getBoundary,                          // geometry
+            w -> Map.of("name", w.getName()),                // properties
+            response.getOutputStream());
+    }
+}
+```
+
+`GeoJsonStreams.writeFeatureSequence(...)` produces a GeoJSON Text Sequence (`application/geo+json-seq`, RFC 8142) that clients can parse record by record. For MySQL, declare the cursor query with `@Options(fetchSize = Integer.MIN_VALUE)` so the driver streams rows; for PostgreSQL use a positive `fetchSize` inside a transaction.
 
 ## Database Support
 
@@ -283,22 +370,23 @@ CREATE TABLE warehouse (
 ### Insert/Update Flow
 
 ```
-Java Point/Polygon object
-    ↓ (TypeHandler.setNonNullParameter)
-WKB byte array
-    ↓ (JDBC setBytes)
+Java geometry object
+    ↓ (TypeHandler.setNonNullParameter: validate, never mutates the object)
+MySQL/MariaDB: SRID + WKB bytes (setBytes)   |   PostGIS: hex EWKB (setObject)
+    ↓
 Database GEOMETRY column
 ```
 
 ### Select Flow
 
 ```
-Database GEOMETRY column
-    ↓ (SQL Interceptor adds HEX())
-WKB hex string
-    ↓ (TypeHandler.getNullableResult)
-Java Point/Polygon object
+Database GEOMETRY column (selected as-is, no SQL rewriting)
+    ↓ MySQL/MariaDB: getBytes() → SRID + WKB   |   PostGIS: getBytes() → hex EWKB
+    ↓ (TypeHandler.getNullableResult → strategy.read)
+Java geometry object (SRID kept on every component)
 ```
+
+The same TypeHandlers also accept the values produced by the legacy interceptor (`HEX(col)`, `encode(ST_AsEWKB(col), 'hex')`), so hand-written SQL that wraps columns keeps working.
 
 ## API Reference
 
@@ -328,13 +416,23 @@ Java Point/Polygon object
 | `MultiPolygonSerializer` / `MultiPolygonDeserializer` | GeoJSON MultiPolygon serialization |
 | `GeometryCollectionSerializer` / `GeometryCollectionDeserializer` | GeoJSON GeometryCollection serialization |
 | `GenericGeometrySerializer` / `GenericGeometryDeserializer` | GeoJSON serialization for any geometry type |
+| `GeoJsonOptions` | Precision, validation and parsing options for the serializers |
+| `@GeoJsonPrecision` | Per-field coordinate precision |
+
+### Streaming
+
+| Class | Description |
+|-------|-------------|
+| `GeoJsonStreams` | Stream JSON arrays, FeatureCollections and GeoJSON Text Sequences from any `Iterable` (including MyBatis `Cursor`) |
+| `GeoJsonMediaTypes` | `application/geo+json` and `application/geo+json-seq` constants |
 
 ### Utility Classes
 
 | Class | Description |
 |-------|-------------|
 | `WkbUtil` | WKB format conversion utilities |
-| `GeometryFactoryProvider` | Thread-safe GeometryFactory provider |
+| `GeometryFactoryProvider` | Thread-safe, per-SRID cached GeometryFactory provider |
+| `GeometryDefaults` | Process-wide write validation and Z handling defaults |
 
 ## Sponsor
 
