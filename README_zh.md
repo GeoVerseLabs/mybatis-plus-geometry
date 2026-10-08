@@ -33,14 +33,14 @@
 <dependency>
     <groupId>io.github.geoverselabs</groupId>
     <artifactId>mybatis-plus-geometry-spring-boot-starter</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.0.1'
+implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.1.0'
 ```
 
 ## 快速开始
