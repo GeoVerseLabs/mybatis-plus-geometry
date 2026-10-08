@@ -271,7 +271,7 @@ class WkbSupportTest {
         "MULTIPOINT (EMPTY, EMPTY, (1 2))"
     })
     void collectionsOfEmptyMembersDecode(String text) {
-        // JTS 1.19 WKBReader.read(byte[]) caps counts at length/16 and would reject these
+        // JTS 1.19 WKBReader.read(byte[]) capped counts at length/16 and rejected these
         Geometry g = wkt(text);
         assertThat(sameGeometry(g, WkbSupport.readEwkb(WkbSupport.writeEwkb(g, 4326, false)))).isTrue();
         assertThat(sameGeometry(g, WkbSupport.readSridPrefixed(WkbSupport.writeSridPrefixed(g, 4326)))).isTrue();

@@ -135,7 +135,7 @@ JTS geometries can carry a Z (elevation) ordinate. With `preserve-z: true`, geom
 
 The default is `false` for compatibility: earlier versions always wrote 2D, and writing a 3D geometry into a 2D PostGIS column (`geometry(Point,4326)`) fails. Enable it when you use `PointZ`/`PolygonZ` columns.
 
-Geometries with an M (measure) ordinate are rejected with a clear error on read: JTS 1.19 cannot represent M and would silently turn it into Z.
+M (measure) ordinates are not supported yet: geometries with M are rejected with a clear error on read instead of being stored or returned incompletely.
 
 #### `coordinate-sequence`
 
@@ -528,7 +528,7 @@ ObjectMapper mapper = new ObjectMapper().registerModule(new GeometryJacksonModul
 
 | Dependency | Version | Scope |
 |-----------|---------|-------|
-| jts-core | 1.19.0 | `api` (transitive) |
+| jts-core | 1.20.0 | `api` (transitive) |
 | slf4j-api | 2.0.9 | `implementation` |
 | mybatis-plus-boot-starter | 3.5.7 | `compileOnly` (user provides) |
 | jackson-databind | 2.15.3 | `compileOnly` (optional; 2.11+ required at runtime, 2.14+ for fast double parsing) |

@@ -135,7 +135,7 @@ JTS 几何可以携带 Z（高程）坐标。设置 `preserve-z: true` 后，至
 
 出于兼容性默认为 `false`：早期版本始终写二维，而向二维 PostGIS 列（`geometry(Point,4326)`）写入三维几何会报错。使用 `PointZ`/`PolygonZ` 等列时请开启。
 
-带 M（测量值）坐标的几何在读取时会被明确拒绝：JTS 1.19 无法表示 M，否则会被悄悄当作 Z。
+暂不支持 M（测量值）坐标：带 M 的几何在读取时会被明确拒绝，而不是被不完整地存储或返回。
 
 #### `coordinate-sequence`
 
@@ -528,7 +528,7 @@ ObjectMapper mapper = new ObjectMapper().registerModule(new GeometryJacksonModul
 
 | 依赖 | 版本 | 作用域 |
 |------|------|--------|
-| jts-core | 1.19.0 | `api`（传递依赖） |
+| jts-core | 1.20.0 | `api`（传递依赖） |
 | slf4j-api | 2.0.9 | `implementation` |
 | mybatis-plus-boot-starter | 3.5.7 | `compileOnly`（由用户提供） |
 | jackson-databind | 2.15.3 | `compileOnly`（可选；运行时需 2.11+，快速 double 解析需 2.14+） |

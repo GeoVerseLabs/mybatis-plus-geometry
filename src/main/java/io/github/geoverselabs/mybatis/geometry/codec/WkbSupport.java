@@ -177,8 +177,8 @@ public final class WkbSupport {
         boolean littleEndian = order == 1;
         int type = getInt(bytes, offset + 1, littleEndian);
         if (hasMeasure(type)) {
-            throw new IllegalArgumentException("WKB geometries with M ordinates are not supported "
-                + "(JTS 1.19 would read the measure as Z): " + hexPrefix(bytes));
+            throw new IllegalArgumentException("WKB geometries with M ordinates are not supported yet: "
+                + hexPrefix(bytes));
         }
         int srid = defaultSrid;
         if ((type & EWKB_SRID_FLAG) != 0) {
@@ -196,8 +196,8 @@ public final class WkbSupport {
         try {
             if (end > 0) {
                 // Every count field was checked against the input length by the scan, so the
-                // unbounded stream reader cannot over-allocate. (read(byte[]) caps counts at
-                // length/16, which rejects collections of several empty members.)
+                // unbounded stream reader cannot over-allocate, and the value is read in place
+                // without copying a prefixed array.
                 return reader.read(new SliceInStream(bytes, offset));
             }
             // Malformed or unusually deep structure: read(byte[]) bounds counts and reports errors.
