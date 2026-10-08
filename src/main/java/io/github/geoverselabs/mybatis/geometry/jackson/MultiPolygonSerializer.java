@@ -1,16 +1,17 @@
 package io.github.geoverselabs.mybatis.geometry.jackson;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.SerializerProvider;
-import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.MultiPolygon;
-import org.locationtech.jts.geom.Polygon;
 
 import java.io.IOException;
 
 /**
  * Jackson serializer for JTS MultiPolygon to GeoJSON format.
+ *
+ * <p>Rings follow the RFC 7946 right-hand rule (exterior rings counter-clockwise, holes
+ * clockwise); empty member polygons are skipped and an empty MultiPolygon is written with
+ * {@code "coordinates": []}.</p>
  *
  * <p>Output format:</p>
  * <pre>{@code
@@ -19,7 +20,7 @@ import java.io.IOException;
  *   "coordinates": [
  *     [
  *       [[lon1, lat1], [lon2, lat2], ..., [lon1, lat1]],  // exterior ring
- *       [[lon1, lat1], ...]  // interior rings (holes)
+ *       [[lon1, lat1], ...]                               // interior rings (holes)
  *     ],
  *     [
  *       [[lon1, lat1], [lon2, lat2], ..., [lon1, lat1]]
@@ -28,6 +29,12 @@ import java.io.IOException;
  * }
  * }</pre>
  *
+ * <p>Instances created with the no-arg constructor (for example through
+ * {@code @JsonSerialize(using = MultiPolygonSerializer.class)}) use
+ * {@link GeoJsonOptions#getGlobal()} at call time; {@link #MultiPolygonSerializer(GeoJsonOptions)}
+ * fixes the options. {@link GeoJsonPrecision} on a property overrides the coordinate precision for
+ * that property.</p>
+ *
  * <p>Usage in DTO:</p>
  * <pre>{@code
  * @JsonSerialize(using = MultiPolygonSerializer.class)
@@ -35,47 +42,46 @@ import java.io.IOException;
  * private MultiPolygon areas;
  * }</pre>
  */
-public class MultiPolygonSerializer extends JsonSerializer<MultiPolygon> {
+public class MultiPolygonSerializer extends GeoJsonGeometrySerializer<MultiPolygon> {
 
-    @Override
-    public void serialize(MultiPolygon multiPolygon, JsonGenerator gen,
-                          SerializerProvider provider) throws IOException {
-        if (multiPolygon == null) {
-            gen.writeNull();
-            return;
-        }
+    private static final long serialVersionUID = 1L;
 
-        gen.writeStartObject();
-        gen.writeStringField("type", "MultiPolygon");
-        gen.writeArrayFieldStart("coordinates");
-
-        for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-            Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
-            gen.writeStartArray();
-
-            // Exterior ring
-            writeCoordinateArray(gen, polygon.getExteriorRing().getCoordinates());
-
-            // Interior rings (holes)
-            for (int j = 0; j < polygon.getNumInteriorRing(); j++) {
-                writeCoordinateArray(gen, polygon.getInteriorRingN(j).getCoordinates());
-            }
-
-            gen.writeEndArray();
-        }
-
-        gen.writeEndArray();
-        gen.writeEndObject();
+    /**
+     * Create a serializer using the global {@link GeoJsonOptions} at call time.
+     */
+    public MultiPolygonSerializer() {
+        this(null, null);
     }
 
-    private void writeCoordinateArray(JsonGenerator gen, Coordinate[] coordinates) throws IOException {
-        gen.writeStartArray();
-        for (Coordinate coordinate : coordinates) {
-            gen.writeStartArray();
-            gen.writeNumber(coordinate.x);  // longitude
-            gen.writeNumber(coordinate.y);  // latitude
-            gen.writeEndArray();
-        }
-        gen.writeEndArray();
+    /**
+     * Create a serializer with fixed options.
+     *
+     * @param options the options; null to use {@link GeoJsonOptions#getGlobal()} at call time
+     */
+    public MultiPolygonSerializer(GeoJsonOptions options) {
+        this(options, null);
+    }
+
+    private MultiPolygonSerializer(GeoJsonOptions options, Integer precisionOverride) {
+        super(MultiPolygon.class, options, precisionOverride);
+    }
+
+    @Override
+    MultiPolygonSerializer withSettings(GeoJsonOptions options, Integer precisionOverride) {
+        return new MultiPolygonSerializer(options, precisionOverride);
+    }
+
+    /**
+     * Write {@code multiPolygon} as a GeoJSON object (JSON null for null).
+     *
+     * @param multiPolygon the geometry
+     * @param gen the generator
+     * @param provider the serializer provider
+     * @throws IOException on write failure or non-finite ordinates
+     */
+    @Override
+    public void serialize(MultiPolygon multiPolygon, JsonGenerator gen, SerializerProvider provider)
+            throws IOException {
+        super.serialize(multiPolygon, gen, provider);
     }
 }
