@@ -9,13 +9,13 @@ Get up and running with mybatis-plus-geometry in 5 minutes!
 <dependency>
     <groupId>io.github.geoverselabs</groupId>
     <artifactId>mybatis-plus-geometry-spring-boot-starter</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
 ### Gradle
 ```groovy
-implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.0.1'
+implementation 'io.github.geoverselabs:mybatis-plus-geometry-spring-boot-starter:1.1.0'
 ```
 
 ## 2. Create Entity
@@ -161,11 +161,12 @@ public class StoreController {
 mybatis:
   geometry:
     default-srid: 4326
-    interceptor-enabled: true
     database-type: MYSQL  # or POSTGRESQL (auto-detected if omitted)
+    geojson:
+      coordinate-precision: 6  # smaller GeoJSON; omit for full double precision
 ```
 
-> Coordinate range validation is automatically enabled when SRID is 4326, and disabled for other SRIDs.
+> Coordinate range validation is automatically enabled when SRID is 4326, and disabled for other SRIDs. No SQL interceptor is needed: geometry columns are read directly. See the [Configuration Reference](../docs/CONFIGURATION.md) for all options.
 
 ## That's It!
 

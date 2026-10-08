@@ -1,7 +1,6 @@
 package io.github.geoverselabs.mybatis.geometry.handler;
 
 import io.github.geoverselabs.mybatis.geometry.strategy.GeometryHandlerStrategy;
-import io.github.geoverselabs.mybatis.geometry.util.WkbUtil;
 import org.apache.ibatis.type.MappedTypes;
 import org.locationtech.jts.geom.Polygon;
 
@@ -9,19 +8,23 @@ import java.sql.SQLException;
 
 /**
  * MyBatis TypeHandler for JTS Polygon geometry.
- * Converts between JTS Polygon objects and database GEOMETRY columns using WKB format.
+ * Converts between JTS Polygon objects and database GEOMETRY columns through the configured
+ * {@link GeometryHandlerStrategy}.
  *
  * <p>Usage in entity:</p>
  * <pre>{@code
  * @PolygonTableField
  * private Polygon boundary;
  * }</pre>
+ *
+ * @see AbstractGeometryTypeHandler
  */
 @MappedTypes(Polygon.class)
 public class PolygonTypeHandler extends AbstractGeometryTypeHandler<Polygon> {
 
     /**
-     * Create a new PolygonTypeHandler with default SRID (4326).
+     * Create a handler that uses the globally configured default SRID and strategy, resolved on
+     * every call.
      */
     public PolygonTypeHandler() {
         super();
@@ -30,7 +33,7 @@ public class PolygonTypeHandler extends AbstractGeometryTypeHandler<Polygon> {
     /**
      * Create a new PolygonTypeHandler with specified default SRID.
      *
-     * @param defaultSrid the default SRID to use
+     * @param defaultSrid the SRID given to geometries whose SRID is 0
      */
     public PolygonTypeHandler(int defaultSrid) {
         super(defaultSrid);
@@ -39,52 +42,33 @@ public class PolygonTypeHandler extends AbstractGeometryTypeHandler<Polygon> {
     /**
      * Create a new PolygonTypeHandler with specified default SRID and strategy.
      *
-     * @param defaultSrid the default SRID to use
+     * @param defaultSrid the SRID given to geometries whose SRID is 0
      * @param strategy the database-specific geometry handler strategy
      */
     public PolygonTypeHandler(int defaultSrid, GeometryHandlerStrategy strategy) {
         super(defaultSrid, strategy);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Declared with the concrete type so that subclasses compiled against 1.0.x, whose
+     * {@code super} calls use this signature, keep linking.</p>
+     */
+    @Override
+    protected void validateGeometry(Polygon geometry) throws SQLException {
+        super.validateGeometry(geometry);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @deprecated see {@link AbstractGeometryTypeHandler#parseGeometry(String)}; declared with the
+     *     concrete type for subclasses compiled against 1.0.x.
+     */
+    @Deprecated
     @Override
     protected Polygon parseGeometry(String hexString) {
-        if (hexString == null || hexString.isEmpty()) {
-            return null;
-        }
-        return WkbUtil.fromWkbAsPolygon(hexString);
-    }
-
-    @Override
-    protected void validateGeometry(Polygon polygon) throws SQLException {
-        if (!polygon.isValid()) {
-            throw new SQLException("Invalid Polygon geometry: " + getValidationError(polygon));
-        }
-
-        // Check for NaN or infinite coordinates
-        for (var coordinate : polygon.getCoordinates()) {
-            if (Double.isNaN(coordinate.x) || Double.isInfinite(coordinate.x)) {
-                throw new SQLException("Invalid Polygon geometry: X coordinate is " +
-                    (Double.isNaN(coordinate.x) ? "NaN" : "infinite"));
-            }
-            if (Double.isNaN(coordinate.y) || Double.isInfinite(coordinate.y)) {
-                throw new SQLException("Invalid Polygon geometry: Y coordinate is " +
-                    (Double.isNaN(coordinate.y) ? "NaN" : "infinite"));
-            }
-        }
-    }
-
-    @Override
-    protected String getGeometryTypeName() {
-        return "Polygon";
-    }
-
-    private String getValidationError(Polygon polygon) {
-        if (polygon.getExteriorRing().getNumPoints() < 4) {
-            return "exterior ring must have at least 4 points";
-        }
-        if (!polygon.getExteriorRing().isClosed()) {
-            return "exterior ring is not closed";
-        }
-        return "geometry is not valid according to OGC rules";
+        return super.parseGeometry(hexString);
     }
 }

@@ -11,7 +11,8 @@ This document provides a complete reference for all configuration options, auto-
 - [Configuration Properties](#configuration-properties)
 - [Auto-Configuration](#auto-configuration)
 - [Database Strategy Details](#database-strategy-details)
-- [SQL Interceptor](#sql-interceptor)
+- [GeoJSON](#geojson)
+- [SQL Interceptor (Legacy, Optional)](#sql-interceptor-legacy-optional)
 - [Custom Extension](#custom-extension)
 - [Multi-DataSource Setup](#multi-datasource-setup)
 - [FAQ / Troubleshooting](#faq--troubleshooting)
@@ -25,9 +26,16 @@ All properties are under the prefix `mybatis.geometry` in `application.yml` or `
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `default-srid` | `int` | `4326` | Default SRID for geometry objects without explicit SRID. 4326 = WGS84 (GPS coordinates). |
-| `interceptor-enabled` | `boolean` | `true` | Enable/disable the SQL interceptor that automatically wraps geometry columns in SELECT queries. |
-| `database-type` | `enum` | *(auto-detect)* | Force a specific database type. Values: `MYSQL`, `POSTGRESQL`. If not set, auto-detected from DataSource URL. |
+| `default-srid` | `int` | `4326` | SRID applied to geometries whose SRID is 0. 4326 = WGS84 (GPS coordinates). |
+| `database-type` | `enum` | *(auto-detect)* | `MYSQL` (also MariaDB) or `POSTGRESQL`. If not set, detected from the DataSource. |
+| `write-validation` | `enum` | `BASIC` | Validation before database writes: `FULL` (OGC `isValid()`), `BASIC` (finite coordinates), `NONE`. |
+| `preserve-z` | `boolean` | `false` | Write Z ordinates to PostGIS. MySQL and MariaDB are always written in 2D. |
+| `coordinate-sequence` | `enum` | `ARRAY` | Coordinate storage of geometries created by the library: `ARRAY` or `PACKED`. |
+| `interceptor-enabled` | `boolean` | `false` | Register the legacy SELECT interceptor. Not needed: TypeHandlers read geometry columns natively. |
+| `geojson.coordinate-precision` | `Integer` | *(full)* | Decimal places written per ordinate (0–15). RFC 7946 recommends 6. |
+| `geojson.validation` | `enum` | `FULL` | GeoJSON input validation: `FULL` (also OGC `isValid()` for polygons) or `BASIC`. |
+| `geojson.coordinate-range-validation` | `Boolean` | *(auto)* | Reject longitudes outside ±180 / latitudes outside ±90. Unset: enabled when `default-srid` is 4326. |
+| `geojson.fast-double-parsing` | `boolean` | `true` | Parse coordinates with Jackson's fast double parser (Jackson 2.14+, ignored on older versions). |
 
 ### YAML Example (Full)
 
@@ -35,16 +43,25 @@ All properties are under the prefix `mybatis.geometry` in `application.yml` or `
 mybatis:
   geometry:
     default-srid: 4326
-    interceptor-enabled: true
     database-type: MYSQL
+    write-validation: BASIC
+    preserve-z: false
+    coordinate-sequence: ARRAY
+    interceptor-enabled: false
+    geojson:
+      coordinate-precision: 6
+      validation: FULL
+      coordinate-range-validation: true
+      fast-double-parsing: true
 ```
 
 ### Properties Example
 
 ```properties
 mybatis.geometry.default-srid=4326
-mybatis.geometry.interceptor-enabled=true
 mybatis.geometry.database-type=MYSQL
+mybatis.geometry.write-validation=BASIC
+mybatis.geometry.geojson.coordinate-precision=6
 ```
 
 ### Property Details
@@ -55,9 +72,10 @@ The Spatial Reference System Identifier applied to geometry objects that have no
 
 - **4326** (WGS84): Standard GPS latitude/longitude. Most common choice.
 - **3857** (Web Mercator): Used by web maps (Google Maps, OpenStreetMap tiles).
+- **0**: Store geometries without a spatial reference (MySQL `SRID 0` columns, Cartesian data).
 - Custom SRID: Set any valid EPSG code if your data uses a local coordinate system.
 
-> **Note**: This only affects geometries created without an explicit SRID. If your code does `point.setSRID(4326)`, this property has no effect on that geometry.
+> **Note**: This only affects geometries whose SRID is 0. If your code does `point.setSRID(4326)`, this property has no effect on that geometry. The library never modifies the geometry objects you pass in; the default is applied only to the encoded value.
 
 #### SRID Management Best Practices
 
@@ -69,7 +87,7 @@ Business code explicit setSRID()  (highest priority)
 Global config: mybatis.geometry.default-srid  (lowest priority)
 ```
 
-**Recommended approach**: Use `GeometryFactoryProvider.getFactory()` to create geometry objects. The factory is pre-configured with your `default-srid` value, so all geometries created through it automatically carry the correct SRID:
+**Recommended approach**: Use `GeometryFactoryProvider.getFactory()` to create geometry objects. The factory is pre-configured with your `default-srid` value (and `coordinate-sequence`), so all geometries created through it automatically carry the correct SRID:
 
 ```java
 import io.github.geoverselabs.mybatis.geometry.util.GeometryFactoryProvider;
@@ -82,65 +100,75 @@ Point point = factory.createPoint(new Coordinate(121.5, 31.2));
 // point.getSRID() == 4326 ✓ — no manual setSRID() needed
 ```
 
-**When to use explicit `setSRID()`**: Only when a specific geometry needs a different SRID than the global default:
+**When to use explicit `setSRID()`**: Only when a specific geometry needs a different SRID than the global default. `GeometryFactoryProvider.getFactory(srid)` returns a cached factory for any SRID:
 
 ```java
-// Global default is 4326, but this specific geometry uses a local CRS
-Point localPoint = factory.createPoint(new Coordinate(500000, 4649776));
-localPoint.setSRID(32650);  // UTM zone 50N
+GeometryFactory utm = GeometryFactoryProvider.getFactory(32650);  // UTM zone 50N
+Point localPoint = utm.createPoint(new Coordinate(500000, 4649776));
 ```
 
-**Anti-pattern to avoid**: Creating geometry with `new GeometryFactory()` directly — this produces SRID=0 objects that rely on runtime fallback:
-
-```java
-// ❌ Bad: SRID=0, relies on ensureSrid() fallback at write time
-GeometryFactory rawFactory = new GeometryFactory();
-Point point = rawFactory.createPoint(new Coordinate(121.5, 31.2));
-// point.getSRID() == 0 — works but fragile
-
-// ✅ Good: SRID set at creation, explicit and traceable
-GeometryFactory factory = GeometryFactoryProvider.getFactory();
-Point point = factory.createPoint(new Coordinate(121.5, 31.2));
-// point.getSRID() == 4326 — guaranteed
-```
+Geometries read from the database are created with a factory carrying their SRID, so every component of a collection and every derived geometry (`buffer()`, `union()`, `getCentroid()`, …) keeps it.
 
 **Summary**:
 - Set `mybatis.geometry.default-srid` once in `application.yml` for your project
 - Always use `GeometryFactoryProvider.getFactory()` to create geometry objects
-- Use `setSRID()` only for exceptional cases with a different coordinate system
-- The TypeHandler's `ensureSrid()` is a safety net, not the primary SRID source
+- Use `getFactory(srid)` only for exceptional cases with a different coordinate system
+- SRID 0 means "unset": a geometry read from a SRID-0 row is written back with `default-srid` unless that is 0 too
 
 ---
 
+#### `write-validation`
+
+Validation applied by the TypeHandlers before a geometry is written:
+
+| Level | Checks | Cost |
+|-------|--------|------|
+| `FULL` | `BASIC` + OGC validity (`Geometry.isValid()`: self-intersections, ring orientation, …) | O(n log n) per geometry |
+| `BASIC` *(default)* | X/Y coordinates are finite (no NaN/Infinity) | O(n) |
+| `NONE` | Nothing | – |
+
+`BASIC` is the default because databases store OGC-invalid geometries: with `FULL`, an `updateById` that only changes another column fails for a row whose stored polygon is invalid, and large polygons pay the validation cost on every write. GeoJSON input is still fully validated by default (`geojson.validation: FULL`), so applications that receive geometries through REST already reject invalid shapes at the boundary. Use `FULL` if geometries are built in Java code and must be valid in the database.
+
+#### `preserve-z`
+
+JTS geometries can carry a Z (elevation) ordinate. With `preserve-z: true`, geometries that contain at least one non-NaN Z value are written to PostGIS as 3D EWKB; others are written in 2D. MySQL and MariaDB do not support Z, so they always receive 2D WKB (a warning is logged once when Z values are dropped).
+
+The default is `false` for compatibility: earlier versions always wrote 2D, and writing a 3D geometry into a 2D PostGIS column (`geometry(Point,4326)`) fails. Enable it when you use `PointZ`/`PolygonZ` columns.
+
+M (measure) ordinates are not supported yet: geometries with M are rejected with a clear error on read instead of being stored or returned incompletely.
+
+#### `coordinate-sequence`
+
+| Value | Storage | When to use |
+|-------|---------|-------------|
+| `ARRAY` *(default)* | One `Coordinate` object per point (JTS default) | Code that mutates `geometry.getCoordinates()` in place |
+| `PACKED` | One `double[]` per sequence | Large geometries, high throughput: about 2.7x less heap per 2D point and less GC pressure |
+
+With `PACKED`, `getCoordinates()` returns copies, so mutating them does not change the geometry. Use `getCoordinateSequence().setOrdinate(...)` and `geometryChanged()` instead.
+
 #### `interceptor-enabled`
 
-Controls whether the `GeometryFieldInterceptor` is registered as a MyBatis plugin.
+Controls whether the legacy `GeometryFieldInterceptor` is registered as a MyBatis plugin. It is **not needed any more**: TypeHandlers read geometry columns natively (see [Database Strategy Details](#database-strategy-details)), including in hand-written SQL, joins and XML mappers. Enabling it only makes the database convert geometries to hex text, doubling the bytes transferred for MySQL.
 
-- **true** (default): The interceptor automatically rewrites SELECT SQL to wrap geometry columns with the appropriate function (`HEX()` for MySQL, `encode(ST_AsBinary(...))` for PostGIS).
-- **false**: No SQL rewriting. You must manually wrap geometry columns in your mapper XML or annotation queries.
-
-When disabled, a SELECT on a geometry column returns raw binary which TypeHandlers cannot parse. You would need:
-
-```sql
--- MySQL: manual wrapping
-SELECT id, name, HEX(location) AS location FROM warehouse
-
--- PostGIS: manual wrapping
-SELECT id, name, encode(ST_AsBinary(location), 'hex') AS location FROM warehouse
-```
+- **false** (default): No SQL rewriting.
+- **true**: SELECT statements generated for entities with geometry fields wrap geometry columns (`HEX(col)` for MySQL, `encode(ST_AsEWKB(col::geometry), 'hex')` for PostGIS). See [SQL Interceptor](#sql-interceptor-legacy-optional).
 
 #### `database-type`
 
 Overrides automatic database detection. Useful when:
 
-- Your connection pool URL cannot be inspected at startup
-- You are using a non-standard JDBC URL format
+- Several DataSources exist (detection needs a single DataSource bean)
+- The database is not reachable at startup
 - You want deterministic behavior in tests
 
-If not specified, the library inspects the `DataSource` JDBC URL:
-- URL contains `mysql` or `mariadb` → `MYSQL`
-- URL contains `postgresql` or `postgres` → `POSTGRESQL`
-- Otherwise → defaults to `MYSQL` (with a warning log)
+If not specified, the library opens one connection to the unique `DataSource` bean and inspects:
+1. `DatabaseMetaData.getDatabaseProductName()`: `MySQL`/`MariaDB` → `MYSQL`, `PostgreSQL` → `POSTGRESQL`
+2. Otherwise the JDBC URL scheme (`jdbc:mysql:`, `jdbc:mariadb:`, `jdbc:postgresql:`, also behind wrappers such as `jdbc:p6spy:` or `jdbc:tc:`). Host and database names are never matched.
+3. Otherwise → `MYSQL` (with a warning log)
+
+#### `geojson.*`
+
+See [GeoJSON](#geojson).
 
 ---
 
@@ -153,7 +181,7 @@ The auto-configuration (`GeometryAutoConfiguration`) activates when **both** con
 1. `com.baomidou.mybatisplus.core.mapper.BaseMapper` is on the classpath
 2. `org.locationtech.jts.geom.Geometry` is on the classpath
 
-If either class is missing, the auto-configuration is silently skipped.
+If either class is missing, the auto-configuration is silently skipped. Jackson is optional: without `jackson-databind` the application starts normally and only the GeoJSON module is skipped.
 
 ### Registered Beans
 
@@ -162,17 +190,31 @@ When active, the following beans are registered (unless already defined by the u
 | Bean | Type | Condition |
 |------|------|-----------|
 | `geometryHandlerStrategy` | `GeometryHandlerStrategy` | `@ConditionalOnMissingBean` |
-| `pointTypeHandler` | `PointTypeHandler` | `@ConditionalOnMissingBean` |
-| `polygonTypeHandler` | `PolygonTypeHandler` | `@ConditionalOnMissingBean` |
-| `lineStringTypeHandler` | `LineStringTypeHandler` | `@ConditionalOnMissingBean` |
+| `pointTypeHandler`, `lineStringTypeHandler`, `polygonTypeHandler`, `multiPointTypeHandler`, `multiLineStringTypeHandler`, `multiPolygonTypeHandler`, `geometryCollectionTypeHandler`, `geometryTypeHandler` | one TypeHandler per geometry type | `@ConditionalOnMissingBean` (per type) |
+| `geometryJacksonModule` | `GeometryJacksonModule` | Jackson on the classpath, no bean of that name |
 | `geometryFieldInterceptor` | `GeometryFieldInterceptor` | `@ConditionalOnMissingBean` + `interceptor-enabled=true` |
+
+MyBatis-Plus registers the TypeHandler beans by Java type, so geometry values are also handled where no `@TableField(typeHandler = …)` applies: wrapper parameters such as `lambdaUpdate().set(Warehouse::getBoundary, polygon)` and result maps of entities without `autoResultMap`.
+
+### Process-Wide Defaults
+
+MyBatis-Plus instantiates the TypeHandlers referenced from `@TableField(typeHandler = …)` by reflection, and Jackson does the same for `@JsonSerialize(using = …)`, so these instances cannot receive Spring beans. The auto-configuration therefore also publishes the settings to process-wide defaults that such instances read on every call:
+
+| Setting | Holder |
+|---------|--------|
+| Database strategy (the `GeometryHandlerStrategy` bean, including your own; with several, the `@Primary` one) | `GeometryStrategyFactory.setDefaultStrategy` |
+| `default-srid`, `coordinate-sequence` | `GeometryFactoryProvider` |
+| `write-validation`, `preserve-z` | `GeometryDefaults` |
+| `geojson.*` | `GeoJsonOptions.setGlobal` |
+
+The values are published before any singleton is created (also with lazy initialization), so your own beans see them. Without Spring Boot, call these setters yourself. If several application contexts with different settings share one class loader, the last one started wins.
 
 ### Spring Boot Compatibility
 
-| Spring Boot Version | Auto-Configuration Mechanism |
-|--------------------|------------------------------|
-| 2.7.x | `META-INF/spring.factories` |
-| 3.0+ | `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` |
+| Spring Boot Version | Auto-Configuration Mechanism | MyBatis-Plus starter |
+|--------------------|------------------------------|----------------------|
+| 2.7.x | `META-INF/spring.factories` | `mybatis-plus-boot-starter` |
+| 3.0+ | `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` | `mybatis-plus-spring-boot3-starter` |
 
 Both files are included — the library works with Spring Boot 2.7+ and 3.x without any changes.
 
@@ -184,47 +226,83 @@ Both files are included — the library works with Spring Boot 2.7+ and 3.x with
 
 | Aspect | Behavior |
 |--------|----------|
-| **Write format** | WKB `byte[]` (4-byte LE SRID prefix + standard WKB) |
-| **Read wrapper** | `HEX(column) AS column` |
-| **Input function** | `?` (direct binary via `PreparedStatement.setBytes()`) |
+| **Write format** | `byte[]`: 4-byte little-endian SRID + 2D WKB (`PreparedStatement.setBytes()`), MySQL's internal geometry format |
+| **Read** | `ResultSet.getBytes()` on the raw column (same internal format) |
+| **Also accepts** | `HEX(column)` text (legacy interceptor / hand-written SQL) |
 | **Compatible DBs** | MySQL 8.0+, MariaDB 10.5+ |
 
 ### PostGIS Strategy
 
 | Aspect | Behavior |
 |--------|----------|
-| **Write format** | Hex WKB `String` (4-byte LE SRID prefix + standard WKB hex) |
-| **Read wrapper** | `(srid_le_hex \|\| encode(ST_AsBinary(column), 'hex')) AS column` |
-| **Input function** | `?` (PostGIS auto-recognizes hex WKB string) |
+| **Write format** | Hex EWKB `String` with the SRID embedded (`setObject(value, Types.OTHER)`); 3D when `preserve-z` applies |
+| **Read** | `ResultSet.getBytes()` on the raw column: the ASCII bytes of hex EWKB for `geometry`/`geography` columns, the raw bytes for bytea expressions (correct in text and binary transfer mode); `getObject()` for `CallableStatement` OUT parameters |
+| **Also accepts** | `encode(ST_AsEWKB(col::geometry), 'hex')`, `ST_AsEWKB(col)` / `ST_AsBinary(col)` (bytea), plain WKB hex, and the 1.0.x "SRID prefix + WKB" hex format |
 | **Compatible DBs** | PostgreSQL 12+ with PostGIS 3.0+ |
+
+Values read through `ST_AsBinary` carry no SRID, so the geometry gets SRID 0; select the column itself or use `ST_AsEWKB` to keep it.
 
 ### Detection Priority
 
-1. If `mybatis.geometry.database-type` is explicitly set → use that
-2. Else, inspect `DataSource.getConnection().getMetaData().getURL()`
-3. If URL inspection fails, try `getMetaData().getDriverName()`
-4. Fallback: `MYSQL` (with warning logged)
+1. If `mybatis.geometry.database-type` is explicitly set → use that (no connection is opened)
+2. Else, with exactly one `DataSource` bean → product name, then JDBC URL scheme (see [`database-type`](#database-type))
+3. Several or no DataSources, or detection fails → `MYSQL` (with warning logged)
 
 ---
 
-## SQL Interceptor
+## GeoJSON
+
+The `GeometryJacksonModule` (registered automatically when Jackson is present) reads and writes all geometry types as RFC 7946 GeoJSON.
+
+**Input**
+- One streaming pass over the JSON tokens; `type` may appear before or after `coordinates`; unknown members (`bbox`, `crs`, …) are ignored.
+- Positions must contain numbers. Numeric strings such as `"116.4"` are accepted as in 1.0.x; other strings, `null` and booleans are rejected (1.0.x silently read them as 0). A third numeric element is kept as Z; anything after the second element that is not a number, and every element after the third, is ignored as in 1.0.x.
+- NaN and infinite coordinates are always rejected; WGS84 ranges are checked when `coordinate-range-validation` applies.
+- Polygon rings must be closed and have at least 4 positions; rings of Polygons and MultiPolygons are normalised to RFC 7946 orientation (exterior counter-clockwise, holes clockwise).
+- `validation: FULL` additionally requires OGC validity for Polygon, MultiPolygon and polygonal GeometryCollection members.
+- Empty `coordinates` / `geometries` arrays produce empty geometries; nested GeometryCollections are supported.
+- Errors are `JsonMappingException`s (`GeoJsonParseException`, `InvalidCoordinateException`) carrying the JSON location and property path, so Spring MVC answers HTTP 400.
+
+**Output**
+- `type` is written first; rings follow the RFC 7946 right-hand rule; Z is written when present; empty geometries are written as `"coordinates": []`.
+- `coordinate-precision` rounds every ordinate half-up and trims trailing zeros, without allocating per number. `@GeoJsonPrecision(n)` on a field or getter overrides it, and `@GeoJsonPrecision(GeoJsonPrecision.FULL)` restores full precision for that field.
+- Works with Jackson default typing (for example Redis `GenericJackson2JsonRedisSerializer`).
+
+**Programmatic use without Spring**
+
+```java
+ObjectMapper mapper = new ObjectMapper()
+    .registerModule(new GeometryJacksonModule(GeoJsonOptions.DEFAULTS.withCoordinatePrecision(6)));
+```
+
+**Streaming output**: `GeoJsonStreams` writes JSON arrays, FeatureCollections and GeoJSON Text Sequences (`application/geo+json-seq`, RFC 8142) item by item from any `Iterable`, including a MyBatis `Cursor`. See the README for a controller example.
+
+**HTTP compression**: GeoJSON typically shrinks by 60–75% with gzip. Add `application/geo+json` to `server.compression.mime-types`.
+
+---
+
+## SQL Interceptor (Legacy, Optional)
+
+The interceptor was needed in 1.0.x because TypeHandlers could only parse hex text. TypeHandlers now read raw geometry columns, so the interceptor is disabled by default and only kept for applications that want the old SQL shape.
 
 ### How It Works
 
-The `GeometryFieldInterceptor` intercepts MyBatis `StatementHandler.prepare()` calls:
+When enabled, the `GeometryFieldInterceptor` intercepts MyBatis `StatementHandler.prepare()` calls:
 
-1. **Only SELECT** queries are processed (INSERT/UPDATE/DELETE are skipped)
-2. Scans the entity class for fields annotated with `@PointTableField`, `@PolygonTableField`, or `@LineStringTableField`
-3. Rewrites `SELECT *` or specific column references to wrap geometry columns
-4. Caches field metadata per entity class for performance
+1. **Only SELECT** statements are processed, and only their top-level select list (subqueries in `exists`, `inSql`, `apply` and derived tables are left alone; `UNION`/`WITH` statements are not rewritten)
+2. The entity is resolved from the statement's result map or the mapper's `BaseMapper<T>` type; its geometry columns come from MyBatis-Plus table metadata (any field whose type handler is a geometry TypeHandler)
+3. Geometry columns of the main table are wrapped, keeping their alias; `SELECT *` is expanded to the entity's columns when the statement reads a single table, and `alias.*` of the main table is expanded even in joins
+4. Rewritten SQL is cached per statement text (`clearCaches()` on the interceptor instance empties the caches)
 
-### Requirements
+When the interceptor is registered in MyBatis XML instead of through Spring Boot, pin the database with the `databaseType` property; otherwise it follows the process-wide default strategy:
 
-For the interceptor to work correctly:
-
-- Entity class **must** have `@TableName(autoResultMap = true)`
-- Mapper **must** extend `BaseMapper<YourEntity>`
-- Geometry fields **must** be annotated with one of the `@*TableField` annotations
+```xml
+<plugins>
+    <plugin interceptor="io.github.geoverselabs.mybatis.geometry.interceptor.GeometryFieldInterceptor">
+        <property name="databaseType" value="POSTGRESQL"/>
+    </plugin>
+</plugins>
+```
 
 ### What Gets Rewritten
 
@@ -236,15 +314,17 @@ SELECT id, name, location, boundary FROM warehouse WHERE id = ?
 SELECT id, name, HEX(location) AS location, HEX(boundary) AS boundary FROM warehouse WHERE id = ?
 
 -- After interceptor (PostGIS)
-SELECT id, name, (srid_hex || encode(ST_AsBinary(location), 'hex')) AS location, ... FROM warehouse WHERE id = ?
+SELECT id, name, encode(ST_AsEWKB(location::geometry), 'hex') AS location, ... FROM warehouse WHERE id = ?
 ```
 
 ### What Is NOT Rewritten
 
-- Custom SQL in XML mappers (manual queries)
-- `@Select` annotation queries
-- Queries where entity class cannot be determined from mapper
 - INSERT / UPDATE / DELETE statements
+- Expressions, function calls and subqueries in the select list
+- Columns qualified with another table's alias in joins
+- Statements whose entity cannot be determined
+
+None of these need rewriting: the TypeHandlers read the raw columns.
 
 ---
 
@@ -257,7 +337,7 @@ Define your own `GeometryHandlerStrategy` bean to replace the auto-configured on
 ```java
 @Configuration
 public class CustomGeometryConfig {
-    
+
     @Bean
     public GeometryHandlerStrategy geometryHandlerStrategy() {
         // Your custom implementation
@@ -266,7 +346,7 @@ public class CustomGeometryConfig {
 }
 ```
 
-Since the auto-configuration uses `@ConditionalOnMissingBean`, your bean takes priority.
+Since the auto-configuration uses `@ConditionalOnMissingBean`, your bean takes priority, and it is also published as the process-wide default for reflectively created TypeHandlers. A custom strategy controls reading by overriding `read(ResultSet, String)` / `read(ResultSet, int)` / `read(CallableStatement, int)` (the defaults read `getString()` and call `parseFromDatabase`) and writing through `convertForDatabase(Geometry, int srid)`.
 
 ### Override TypeHandler
 
@@ -275,109 +355,97 @@ Similarly, you can provide custom TypeHandlers:
 ```java
 @Bean
 public PointTypeHandler pointTypeHandler() {
-    // Custom SRID or strategy
+    // Fixed SRID and strategy
     return new PointTypeHandler(3857, myStrategy);
 }
 ```
 
-### Custom Geometry Type
+The no-arg constructors resolve the strategy and default SRID on every call, so handlers created by MyBatis-Plus always follow the current configuration.
 
-To support a new geometry type (e.g., `MultiPoint`):
+### Custom Column Names
 
-1. Create a `MultiPointTypeHandler` extending `AbstractGeometryTypeHandler<MultiPoint>`
-2. Create a `@MultiPointTableField` annotation
-3. Register in your configuration
+The `@*TableField` annotations are shortcuts for `@TableField(typeHandler = …)` and have no attributes. To also set a column name, use `@TableField` directly; the library recognises it:
 
 ```java
-public class MultiPointTypeHandler extends AbstractGeometryTypeHandler<MultiPoint> {
-    
+@TableField(value = "geo_location", typeHandler = PointTypeHandler.class)
+private Point location;
+```
+
+Do not combine `@TableField("geo_location")` with `@PointTableField` on the same field: MyBatis-Plus uses the first `@TableField` it finds, so one of the two settings is lost (with the direct annotation first, no TypeHandler is bound).
+
+### Custom Validation
+
+Subclass a TypeHandler to add rules; reading, type checking and SRID handling are inherited:
+
+```java
+public class StrictPolygonTypeHandler extends PolygonTypeHandler {
     @Override
-    protected MultiPoint parseGeometry(String hexString) {
-        if (hexString == null || hexString.isEmpty()) return null;
-        return WkbUtil.fromWkbAsMultiPoint(hexString);
-    }
-    
-    @Override
-    protected void validateGeometry(MultiPoint geometry) throws SQLException {
-        // Custom validation
-    }
-    
-    @Override
-    protected String getGeometryTypeName() {
-        return "MultiPoint";
+    protected void validateGeometry(Polygon polygon) throws SQLException {
+        super.validateGeometry(polygon);          // write-validation level
+        if (!polygon.isValid()) {
+            throw new SQLException("Polygon is not OGC-valid");
+        }
     }
 }
 ```
 
-### Disable Interceptor and Use Manual Queries
-
-If you prefer full control over SQL:
-
-```yaml
-mybatis:
-  geometry:
-    interceptor-enabled: false
+```java
+@TableField(typeHandler = StrictPolygonTypeHandler.class)
+private Polygon boundary;
 ```
 
-Then in your mapper XML:
+Subclasses written for 1.0.x keep working: overrides of `ensureSrid(Geometry)` are applied to a copy of the geometry before writing, and overrides of `parseGeometry(String)` receive the column read with `getString()`, as before. New code should implement a `GeometryHandlerStrategy` for custom formats.
+
+### Hand-Written Queries
+
+Select geometry columns as they are; no wrapping is required:
 
 ```xml
-<!-- MySQL -->
 <select id="findById" resultMap="warehouseResultMap">
-    SELECT id, name, HEX(location) AS location 
-    FROM warehouse WHERE id = #{id}
-</select>
-
-<!-- PostGIS -->
-<select id="findById" resultMap="warehouseResultMap">
-    SELECT id, name, encode(ST_AsBinary(location), 'hex') AS location 
-    FROM warehouse WHERE id = #{id}
+    SELECT w.id, w.name, w.location
+    FROM warehouse w JOIN region r ON ST_Contains(r.boundary, w.location)
+    WHERE w.id = #{id}
 </select>
 ```
+
+Wrapped columns written for 1.0.x (`HEX(location)`, `encode(ST_AsEWKB(location), 'hex')`) keep working.
 
 ---
 
 ## Multi-DataSource Setup
 
-In a multi-datasource environment, each datasource may connect to a different database type. The auto-configuration binds a single strategy to the primary DataSource.
+In a multi-datasource environment, each datasource may connect to a different database type. Database detection needs a single DataSource, so with several DataSources set `database-type` or define the strategy yourself.
 
-### Approach: Per-DataSource Configuration
+### Approach: Same Database Type Everywhere
 
-```java
-@Configuration
-public class GeometryMultiDsConfig {
-    
-    @Bean
-    @Primary
-    public GeometryHandlerStrategy primaryStrategy(@Qualifier("primaryDataSource") DataSource ds) {
-        return GeometryStrategyFactory.detectStrategy(ds);
-    }
-    
-    // For secondary datasource, create separate TypeHandlers
-    @Bean
-    public PointTypeHandler secondaryPointTypeHandler(
-            @Qualifier("secondaryDataSource") DataSource ds) {
-        GeometryHandlerStrategy strategy = GeometryStrategyFactory.detectStrategy(ds);
-        return new PointTypeHandler(4326, strategy);
-    }
-}
+```yaml
+mybatis:
+  geometry:
+    database-type: POSTGRESQL
 ```
 
-### Approach: Explicit Type per DataSource
+### Approach: Different Database Types
+
+Give the TypeHandlers of each `SqlSessionFactory` their own strategy:
 
 ```java
 @Bean
-public GeometryHandlerStrategy mysqlStrategy() {
+@Primary
+public GeometryHandlerStrategy primaryStrategy() {
     return GeometryStrategyFactory.getStrategy(DatabaseType.MYSQL);
 }
 
 @Bean
-public GeometryHandlerStrategy postgisStrategy() {
-    return GeometryStrategyFactory.getStrategy(DatabaseType.POSTGRESQL);
+public SqlSessionFactory reportingSqlSessionFactory(@Qualifier("reportingDataSource") DataSource ds) throws Exception {
+    MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean();
+    factory.setDataSource(ds);
+    GeometryHandlerStrategy postgis = GeometryStrategyFactory.getStrategy(DatabaseType.POSTGRESQL);
+    factory.setTypeHandlers(new PointTypeHandler(4326, postgis), new PolygonTypeHandler(4326, postgis) /* … */);
+    return factory.getObject();
 }
 ```
 
-> **Note**: The SQL interceptor uses a single strategy. If you need different wrapping for different datasources, disable the interceptor and use manual SQL.
+> **Note**: Handlers created by reflection from `@TableField(typeHandler = …)` use the process-wide default strategy. With databases of different types, make sure the explicitly registered handlers are the ones used (for example by registering them by Java type as above).
 
 ---
 
@@ -385,13 +453,17 @@ public GeometryHandlerStrategy postgisStrategy() {
 
 ### Q: Geometry field always returns `null` in SELECT
 
-**Cause**: Missing `autoResultMap = true` on the entity class.
+**Cause**: Missing `autoResultMap = true` on the entity class (MyBatis-Plus only applies `@TableField(typeHandler)` to results through the auto result map), or a MyBatis-Plus version older than 3.5.6, which ignores the meta-annotated `@TableField` of the `@*TableField` annotations.
 
 **Fix**:
 ```java
 @TableName(value = "your_table", autoResultMap = true)  // ← required!
 public class YourEntity { ... }
 ```
+
+### Q: `column 'x' contains a MultiPolygon but the mapped type is Polygon`
+
+The column holds a different geometry type than the field. Use the matching field type, or a generic `Geometry` field with `@GeometryTableField`.
 
 ### Q: `org.apache.ibatis.type.TypeException: Could not set parameters`
 
@@ -400,56 +472,47 @@ public class YourEntity { ... }
 **Check**:
 1. Verify `database-type` matches your actual database
 2. For PostGIS, ensure the PostGIS extension is enabled: `CREATE EXTENSION IF NOT EXISTS postgis;`
-3. For MySQL, ensure the column type is `GEOMETRY`, `POINT`, `POLYGON`, or `LINESTRING`
+3. For MySQL, ensure the column type is `GEOMETRY` or a geometry subtype
 
 ### Q: SRID mismatch error on INSERT (MySQL)
 
-**Cause**: Table column has `SRID 4326` constraint but geometry object has SRID 0.
+**Cause**: Table column has an `SRID 4326` constraint but the geometry has another SRID (or SRID 0 with a different `default-srid`).
 
-**Fix**: Ensure geometry has correct SRID:
-```java
-Point point = factory.createPoint(new Coordinate(121.5, 31.2));
-point.setSRID(4326);  // ← explicitly set SRID
-```
-
-Or configure the default SRID:
+**Fix**: Create geometries with `GeometryFactoryProvider.getFactory()`, or configure the default SRID:
 ```yaml
 mybatis:
   geometry:
     default-srid: 4326
 ```
 
+### Q: `Column has Z dimension but geometry does not` (PostGIS)
+
+Set `mybatis.geometry.preserve-z: true` when you use Z columns (`PointZ`, `PolygonZ`, …).
+
+### Q: Invalid polygons are no longer rejected on write
+
+Since 1.1 the default `write-validation` is `BASIC`. Set it to `FULL` to restore OGC validation on every write. GeoJSON input is still validated with `FULL` by default.
+
 ### Q: `HEX()` function not found (PostgreSQL)
 
-**Cause**: The library defaults to MySQL strategy (using `HEX()`) but you're on PostgreSQL.
+**Cause**: The interceptor is enabled and the library uses the MySQL strategy on PostgreSQL.
 
-**Fix**: Either:
-1. Set `mybatis.geometry.database-type: POSTGRESQL`
-2. Or ensure your JDBC URL contains `postgresql`/`postgres` for auto-detection
-
-### Q: Interceptor does not rewrite my custom SQL
-
-**Expected behavior**: The interceptor only processes queries generated by MyBatis Plus's built-in methods (`selectById`, `selectList`, etc.). Custom `@Select` or XML queries are not rewritten.
-
-**Solution**: Manually wrap geometry columns in your custom SQL (see [Disable Interceptor](#disable-interceptor-and-use-manual-queries)).
-
-### Q: Performance concern with interceptor
-
-The interceptor adds minimal overhead:
-- Field metadata is cached per entity class (one-time reflection cost)
-- SQL rewriting uses simple string operations
-- Only SELECT statements are intercepted
-
-In benchmarks, the overhead is < 1ms per query.
+**Fix**: Disable the interceptor (it is not needed), or set `mybatis.geometry.database-type: POSTGRESQL`.
 
 ### Q: Can I use this without Spring Boot?
 
-The auto-configuration requires Spring Boot, but the core classes (`WkbUtil`, TypeHandlers, Strategy) can be used standalone:
+Yes. Register the TypeHandlers with MyBatis and set the process-wide defaults yourself:
 
 ```java
-// Manual setup without Spring
-PointTypeHandler handler = new PointTypeHandler(4326, new MySQLGeometryStrategy());
-// Register handler manually in MyBatis configuration
+GeometryHandlerStrategy strategy = GeometryStrategyFactory.getStrategy(DatabaseType.POSTGRESQL);
+GeometryStrategyFactory.setDefaultStrategy(strategy);   // used by handlers created via @TableField
+GeometryFactoryProvider.setDefaultSrid(4326);
+
+MybatisConfiguration configuration = new MybatisConfiguration();
+configuration.getTypeHandlerRegistry().register(new PointTypeHandler(4326, strategy));
+// … other handlers, mappers
+
+ObjectMapper mapper = new ObjectMapper().registerModule(new GeometryJacksonModule());
 ```
 
 ---
@@ -458,17 +521,17 @@ PointTypeHandler handler = new PointTypeHandler(4326, new MySQLGeometryStrategy(
 
 | mybatis-plus-geometry | Java | Spring Boot | MyBatis Plus | MySQL | PostgreSQL + PostGIS |
 |----------------------|------|-------------|-------------|-------|---------------------|
-| 1.0.x | 17+ | 2.7+ / 3.x | 3.5+ | 8.0+ | 12+ / 3.0+ |
+| 1.1.x | 17+ | 2.7+ / 3.x | 3.5.6+ | 8.0+ (MariaDB 10.5+) | 12+ / 3.0+ |
+| 1.0.x | 17+ | 2.7+ / 3.x | 3.5.6+ | 8.0+ | 12+ / 3.0+ |
 
 ### Dependency Versions Used
 
 | Dependency | Version | Scope |
 |-----------|---------|-------|
-| jts-core | 1.19.0 | `api` (transitive) |
-| commons-codec | 1.16.0 | `implementation` |
+| jts-core | 1.20.0 | `api` (transitive) |
 | slf4j-api | 2.0.9 | `implementation` |
 | mybatis-plus-boot-starter | 3.5.7 | `compileOnly` (user provides) |
-| jackson-databind | 2.15.3 | `compileOnly` (optional) |
+| jackson-databind | 2.15.3 | `compileOnly` (optional; 2.11+ required at runtime, 2.14+ for fast double parsing) |
 | spring-boot-autoconfigure | 3.2.2 | `compileOnly` (user provides) |
 
 > Jackson serializers are optional. If `jackson-databind` is not on the classpath, GeoJSON support is simply unavailable (no errors).

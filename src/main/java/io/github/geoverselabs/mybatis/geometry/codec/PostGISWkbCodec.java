@@ -1,74 +1,116 @@
 package io.github.geoverselabs.mybatis.geometry.codec;
 
+import io.github.geoverselabs.mybatis.geometry.support.GeometryDefaults;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.io.ByteOrderValues;
-import org.locationtech.jts.io.ParseException;
-import org.locationtech.jts.io.WKBReader;
-import org.locationtech.jts.io.WKBWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.HexFormat;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * PostGIS EWKB codec: uses JTS WKBWriter's EWKB mode (SRID flag 0x20000000 embedded in type field).
- * Output can be directly parsed by PostGIS ST_GeomFromEWKB.
+ * PostGIS codec based on EWKB (SRID flag {@code 0x20000000} embedded in the type word).
+ * Output can be passed directly to a geometry parameter ({@code ps.setObject(hex, Types.OTHER)}).
  *
- * <p>Thread safety: creates new WKBWriter/WKBReader instances on each invocation.</p>
+ * <p>Encode output: {@code String} lowercase hex EWKB. Geometries are written as 2D unless
+ * {@link GeometryDefaults#isPreserveZ()} is enabled and the geometry has at least one non-NaN Z
+ * value, in which case 3D EWKB (Z flag) is written.</p>
  *
- * <p>Encode output: {@code String} hex EWKB (used with {@code ps.setObject(str, Types.OTHER)})</p>
- * <p>Decode input: {@code String} hex (4-byte LE SRID prefix + standard WKB from SELECT)</p>
+ * <p>Decode input: a {@code String} or {@code byte[]} holding</p>
+ * <ul>
+ *   <li>hex (E)WKB, optionally with the bytea prefix {@code \x} — the text output of a PostGIS
+ *       {@code geometry} column, {@code encode(ST_AsEWKB(col), 'hex')} or a text-mode bytea expression
+ *       such as {@code ST_AsEWKB(col)} read with {@code getString()} — as a {@code String} or as
+ *       ASCII bytes ({@code getBytes()} of a text column);</li>
+ *   <li>raw (E)WKB bytes ({@code getBytes()} of a bytea expression);</li>
+ *   <li>the legacy format "4-byte little-endian SRID + WKB" produced by earlier versions.</li>
+ * </ul>
+ * <p>An EWKB value without SRID flag decodes with SRID 0. Geometries with M ordinates are rejected.</p>
+ *
+ * <p>Thread safety: stateless; creates new WKB reader/writer instances on each invocation.</p>
  */
 public class PostGISWkbCodec implements WkbCodec {
 
-    private static final int SRID_PREFIX_LENGTH = 4;
-    private static final int DEFAULT_SRID = 4326;
+    private static final Logger log = LoggerFactory.getLogger(PostGISWkbCodec.class);
 
+    private static final AtomicBoolean Z_DROP_REPORTED = new AtomicBoolean();
+
+    /**
+     * Encode with the geometry's SRID, or the configured default SRID when it is 0.
+     *
+     * @param geometry the geometry to encode (not modified)
+     * @return hex EWKB, or null for a null geometry
+     */
     @Override
     public Object encode(Geometry geometry) {
         if (geometry == null) {
             return null;
         }
-        int srid = geometry.getSRID() == 0 ? DEFAULT_SRID : geometry.getSRID();
-        geometry.setSRID(srid);
-
-        WKBWriter writer = new WKBWriter(2, ByteOrderValues.LITTLE_ENDIAN, true); // includeSRID=true
-        byte[] ewkb = writer.write(geometry);
-        return HexFormat.of().formatHex(ewkb);
+        return encode(geometry, WkbSupport.effectiveSrid(geometry));
     }
 
+    /**
+     * Encode as little-endian hex EWKB carrying {@code srid}.
+     *
+     * @param geometry the geometry to encode (not modified)
+     * @param srid     the SRID to embed (0 writes plain WKB without SRID flag)
+     * @return hex EWKB, or null for a null geometry
+     */
+    @Override
+    public Object encode(Geometry geometry, int srid) {
+        if (geometry == null) {
+            return null;
+        }
+        boolean withZ;
+        if (GeometryDefaults.isPreserveZ()) {
+            withZ = WkbSupport.hasZ(geometry);
+        } else {
+            withZ = false;
+            if (!Z_DROP_REPORTED.get() && WkbSupport.firstCoordinateHasZ(geometry)
+                && Z_DROP_REPORTED.compareAndSet(false, true)) {
+                log.warn("Z values of {} geometries are dropped on write because Z preservation is disabled; "
+                    + "enable it with GeometryDefaults.setPreserveZ(true) (reported once)",
+                    geometry.getGeometryType());
+            }
+        }
+        return WkbSupport.toHex(WkbSupport.writeEwkb(geometry, srid, withZ), false);
+    }
+
+    /**
+     * Decode hex or binary (E)WKB, or the legacy SRID-prefixed format.
+     *
+     * @param dbValue {@code String} or {@code byte[]}
+     * @return the geometry, or null for null or empty input
+     * @throws IllegalArgumentException if the value has another type or is malformed
+     */
     @Override
     public Geometry decode(Object dbValue) {
         if (dbValue == null) {
             return null;
         }
-        if (!(dbValue instanceof String hexString)) {
+        byte[] bytes;
+        if (dbValue instanceof String text) {
+            if (text.isEmpty()) {
+                return null;
+            }
+            bytes = WkbSupport.hexToBytes(text);
+        } else if (dbValue instanceof byte[] raw) {
+            if (raw.length == 0) {
+                return null;
+            }
+            bytes = raw;
+            if (raw[0] != 0 && raw[0] != 1) {
+                byte[] decoded = WkbSupport.tryDecodeAsciiHex(raw);
+                if (decoded != null) {
+                    bytes = decoded;
+                }
+            }
+        } else {
             throw new IllegalArgumentException(
-                "PostGISWkbCodec expects String hex, got: " + dbValue.getClass().getName());
+                "PostGISWkbCodec expects String hex or byte[], got: " + dbValue.getClass().getName());
         }
-        if (hexString.isEmpty()) {
+        if (bytes.length == 0) {
             return null;
         }
-
-        try {
-            byte[] bytes = HexFormat.of().parseHex(hexString);
-            if (bytes.length < SRID_PREFIX_LENGTH + 5) {
-                throw new IllegalArgumentException("Input too short for PostGIS WKB format");
-            }
-            // PostGIS SELECT returns format: 4-byte LE SRID + standard WKB
-            int srid = ByteBuffer.wrap(bytes, 0, SRID_PREFIX_LENGTH)
-                         .order(ByteOrder.LITTLE_ENDIAN).getInt();
-            byte[] wkb = new byte[bytes.length - SRID_PREFIX_LENGTH];
-            System.arraycopy(bytes, SRID_PREFIX_LENGTH, wkb, 0, wkb.length);
-
-            WKBReader reader = new WKBReader();
-            Geometry geom = reader.read(wkb);
-            geom.setSRID(srid);
-            return geom;
-        } catch (ParseException e) {
-            String prefix = hexString.substring(0, Math.min(20, hexString.length()));
-            throw new IllegalArgumentException(
-                "Failed to decode PostGIS WKB, hex prefix: " + prefix, e);
-        }
+        return WkbSupport.readEwkbOrSridPrefixed(bytes);
     }
 }
