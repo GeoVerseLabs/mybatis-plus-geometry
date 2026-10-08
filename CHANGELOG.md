@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-08
+
 ### Fixed
 
 - Reading entities with `MultiPoint`, `MultiLineString`, `MultiPolygon`, `GeometryCollection` or generic `Geometry` fields failed on every database: the SELECT interceptor did not recognise their annotations, and the TypeHandlers could only parse its hex output
@@ -15,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SRID 0 could not be written (codecs replaced it with a hard-coded 4326); `default-srid` is now honoured, including 0
 - Decoded geometries used a factory with SRID 0, so collection members and derived geometries (`buffer`, `union`, …) lost the SRID
 - Writes mutated the caller's geometry (`setSRID`)
-- Z ordinates were silently dropped on write, so PostGIS Z columns could not be written (see `preserve-z`); M ordinates were silently read as Z and are now rejected
+- Z ordinates were silently dropped on write, so PostGIS Z columns could not be written (see `preserve-z`); M ordinates were silently read as Z and are now rejected (M support is planned)
 - Every write ran a full OGC `isValid()`, rejecting `updateById` of rows whose stored geometry is OGC-invalid
 - Decoding errors lost their cause and were reported as "Unexpected database value type"
 - Empty geometries could not be encoded by `WkbUtil` or serialized to GeoJSON (`POINT EMPTY` threw)
@@ -44,10 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GeometryFactoryProvider.getFactory(srid)` caching and `setCoordinateSequenceType(...)`
 - `GeoJsonStreams` and `GeoJsonMediaTypes`: stream JSON arrays, FeatureCollections and JSON/GeoJSON Text Sequences (RFC 7464/8142) from any `Iterable`, including a MyBatis `Cursor`, without loading all rows
 - `GeometryFieldInterceptor` plugin property `databaseType` and instance method `clearCaches()`
-- Testcontainers integration tests for MySQL 8, MariaDB 11 and PostGIS 16, and a Spring Boot end-to-end test
 
 ### Changed
 
+- Upgrade JTS to 1.20.0 (`api` dependency, so applications get it transitively)
 - `interceptor-enabled` now defaults to `false`; the interceptor is only kept for compatibility. Its PostGIS wrapper is now `encode(ST_AsEWKB(col::geometry), 'hex')` (hex EWKB, also for `geography` columns), which `WkbUtil.fromWkb` decodes. Statements that do not return the entity (`selectMaps`, `selectObjs`, DTOs) are only rewritten when they read the entity's own table, so with dynamic table names their geometry values are returned unwrapped
 - `write-validation` defaults to `BASIC` (finite coordinates) instead of a full OGC validation on every write; set `FULL` to restore the old behaviour
 - GeoJSON output: rings are re-oriented to the RFC 7946 right-hand rule, empty geometries are written as `[]`, and Z is written when present
@@ -117,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spring Boot 2.7+ / 3.x (compileOnly)
 - Jackson Databind (compileOnly)
 
-[Unreleased]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/GeoVerseLabs/mybatis-plus-geometry/releases/tag/v1.0.0
